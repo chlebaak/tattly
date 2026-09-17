@@ -1,0 +1,1 @@
+ALTER TABLE "profiles" ADD COLUMN "timezone" varchar(64) DEFAULT 'Europe/Prague' NOT NULL;

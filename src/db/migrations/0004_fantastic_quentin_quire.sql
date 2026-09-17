@@ -1,0 +1,1 @@
+ALTER TABLE "services" ADD COLUMN "slot_interval_minutes" integer;
