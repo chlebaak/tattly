@@ -4,7 +4,7 @@ import { bookings, type Profile } from "@/db/schema";
 import { buildIcsAttachment } from "./calendar";
 import { bookingConfirmedEmailForClient, sendEmail } from "./email";
 import { createCalendarEvent, getAccessTokenForProfile } from "./google";
-import { inngest } from "@/inngest/client";
+import { scheduleBookingReminder } from "@/inngest/client";
 import { appUrl } from "./env";
 
 export async function onBookingConfirmed(params: {
@@ -61,11 +61,7 @@ export async function onBookingConfirmed(params: {
 
   const remindAt = new Date(params.startTime.getTime() - 24 * 60 * 60 * 1000);
   if (remindAt > new Date()) {
-    await inngest.send({
-      name: "booking/remind",
-      data: { bookingId: params.bookingId },
-      ts: remindAt.getTime(),
-    });
+    await scheduleBookingReminder(params.bookingId, remindAt);
   }
 
   const ics = await buildIcsAttachment({

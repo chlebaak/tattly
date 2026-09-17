@@ -35,7 +35,10 @@ import {
   getAccessTokenForProfile,
   updateCalendarEvent,
 } from "@/lib/google";
-import { inngest } from "@/inngest/client";
+import {
+  scheduleBookingReminder,
+  scheduleDepositExpiry,
+} from "@/inngest/client";
 import { appUrl } from "@/lib/env";
 
 const approveSchema = z.object({
@@ -171,11 +174,7 @@ export async function rescheduleBooking(input: {
     }
     const remindAt = new Date(start.getTime() - 24 * 60 * 60 * 1000);
     if (remindAt > new Date()) {
-      await inngest.send({
-        name: "booking/remind",
-        data: { bookingId: booking.id },
-        ts: remindAt.getTime(),
-      });
+      await scheduleBookingReminder(booking.id, remindAt);
     }
   }
 
@@ -386,11 +385,6 @@ export async function approveBookingAction(
   }
 
   try {
-    await inngest.send({
-      name: "deposit/expire",
-      data: { bookingId: booking.id },
-      ts: depositExpiresAt.getTime(),
-    });
     const qr = profile.bankAccount
       ? await buildDepositQr({
           iban: profile.bankAccount,
@@ -444,6 +438,8 @@ export async function approveBookingAction(
     });
     return { ok: false, error: "UNKNOWN" };
   }
+
+  await scheduleDepositExpiry(booking.id, depositExpiresAt);
 
   revalidatePath("/dashboard");
   return { ok: true };
