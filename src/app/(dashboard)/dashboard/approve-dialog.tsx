@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/date-field";
 import {
@@ -16,7 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { approveBookingAction } from "./actions";
+import { Skeleton } from "@/components/ui/skeleton";
+import { approveBookingAction, getSuggestedSlots } from "./actions";
 import type { BookingView } from "./booking-view";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -24,34 +26,87 @@ const ERROR_MESSAGES: Record<string, string> = {
   NOT_FOUND: "Poptávka nenalezena.",
   INVALID_STATE: "Poptávka už není ke schválení.",
   SLOT_TAKEN: "Termín je už obsazený jinou rezervací – vyberte jiný.",
-  NEEDS_PAYMENT_SETUP:
-    "Nejdřív vyplňte bankovní účet (Nastavení → Profil → Fakturace) nebo připojte Stripe.",
-  STRIPE_ERROR: "Nepodařilo se vytvořit platbu. Zkuste to znovu.",
   UNKNOWN: "Něco se pokazilo. Zkuste to znovu.",
 };
 
-export function ApproveDialog({ booking }: { booking: BookingView }) {
-  const [open, setOpen] = useState(false);
+function datePart(booking: BookingView): string {
+  return booking.proposedStartValue?.split("T")[0] ?? "";
+}
+
+function timePart(booking: BookingView): string {
+  return booking.proposedStartValue?.split("T")[1]?.slice(0, 5) ?? "";
+}
+
+export function ApproveDialog({
+  booking,
+  trigger,
+  open: openProp,
+  onOpenChange,
+}: {
+  booking: BookingView;
+  trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const controlled = openProp !== undefined;
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = controlled ? openProp : innerOpen;
   const [pending, setPending] = useState(false);
-  const [startDate, setStartDate] = useState(
-    booking.proposedStartValue?.split("T")[0] ?? ""
+  const [startDate, setStartDate] = useState(datePart(booking));
+  const [startTime, setStartTime] = useState(timePart(booking));
+  const [depositCzk, setDepositCzk] = useState("");
+  const [priceCzk, setPriceCzk] = useState("");
+  const [slots, setSlots] = useState<{ iso: string; label: string }[] | null>(
+    null
   );
-  const [startTime, setStartTime] = useState(
-    booking.proposedStartValue?.split("T")[1]?.slice(0, 5) ?? ""
-  );
-  const [depositCzk, setDepositCzk] = useState(
-    String(
-      Math.round(
-        (booking.serviceDepositMinor ?? booking.defaultDepositCents) / 100
-      )
-    )
-  );
-  const [priceCzk, setPriceCzk] = useState(
-    booking.servicePriceMinor
-      ? String(Math.round(booking.servicePriceMinor / 100))
-      : ""
-  );
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const router = useRouter();
+
+  function setOpen(next: boolean) {
+    if (!controlled) setInnerOpen(next);
+    onOpenChange?.(next);
+  }
+
+  function reset() {
+    setStartDate(datePart(booking));
+    setStartTime(timePart(booking));
+    setDepositCzk(
+      String(
+        Math.round(
+          (booking.serviceDepositMinor ?? booking.defaultDepositCents) / 100
+        )
+      )
+    );
+    setPriceCzk(
+      booking.servicePriceMinor
+        ? String(Math.round(booking.servicePriceMinor / 100))
+        : ""
+    );
+  }
+
+  useEffect(() => {
+    if (open) reset();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !startDate) return;
+    let cancelled = false;
+    setSlotsLoading(true);
+    getSuggestedSlots({ bookingId: booking.id, dayKey: startDate })
+      .then((result) => {
+        if (!cancelled) setSlots(result.ok ? result.slots : []);
+      })
+      .catch(() => {
+        if (!cancelled) setSlots([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSlotsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, startDate, booking.id]);
 
   const depositIsZero = depositCzk.trim() !== "" && Number(depositCzk) === 0;
 
@@ -68,8 +123,7 @@ export function ApproveDialog({ booking }: { booking: BookingView }) {
     const result = await approveBookingAction({
       bookingId: booking.id,
       startIso,
-      depositCzk:
-        depositCzk.trim() !== "" ? Number(depositCzk) : undefined,
+      depositCzk: depositCzk.trim() !== "" ? Number(depositCzk) : undefined,
       priceCzk: priceCzk.trim() !== "" ? Number(priceCzk) : undefined,
     });
     setPending(false);
@@ -89,35 +143,9 @@ export function ApproveDialog({ booking }: { booking: BookingView }) {
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) {
-          setStartDate(booking.proposedStartValue?.split("T")[0] ?? "");
-          setStartTime(
-            booking.proposedStartValue?.split("T")[1]?.slice(0, 5) ?? ""
-          );
-          setDepositCzk(
-            String(
-              Math.round(
-                (booking.serviceDepositMinor ?? booking.defaultDepositCents) /
-                  100
-              )
-            )
-          );
-          setPriceCzk(
-            booking.servicePriceMinor
-              ? String(Math.round(booking.servicePriceMinor / 100))
-              : ""
-          );
-        }
-        setOpen(next);
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button size="sm">Schválit</Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-sm">
+    <Dialog open={open} onOpenChange={setOpen}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Schválit poptávku</DialogTitle>
           <DialogDescription>
@@ -126,39 +154,87 @@ export function ApproveDialog({ booking }: { booking: BookingView }) {
           </DialogDescription>
         </DialogHeader>
         <div className="space-y-4">
-          <div className="grid gap-2 sm:grid-cols-[1fr_auto]">
-            <div className="space-y-2">
-              <Label htmlFor={`approve-date-${booking.id}`}>Datum</Label>
-              <DateField
-                id={`approve-date-${booking.id}`}
-                value={startDate}
-                onChange={setStartDate}
-                minToday
-              />
-            </div>
-            <div className="space-y-2">
-              <Label htmlFor={`approve-time-${booking.id}`}>Čas</Label>
-              <Input
-                id={`approve-time-${booking.id}`}
-                type="time"
-                value={startTime}
-                onChange={(e) => setStartTime(e.target.value)}
-                className="w-32"
-              />
-            </div>
+          <div className="space-y-2">
+            <Label htmlFor={`approve-date-${booking.id}`}>Datum</Label>
+            <DateField
+              id={`approve-date-${booking.id}`}
+              value={startDate}
+              onChange={setStartDate}
+              minToday
+            />
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
+
+          <div className="space-y-2">
+            <Label>Volné termíny</Label>
+            {slotsLoading ? (
+              <div className="flex flex-wrap gap-1.5">
+                {[0, 1, 2, 3, 4, 5].map((index) => (
+                  <Skeleton key={index} className="h-8 w-16 rounded-lg" />
+                ))}
+              </div>
+            ) : slots && slots.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {slots.map((slot) => {
+                  const active = slot.label === startTime;
+                  return (
+                    <button
+                      key={slot.iso}
+                      type="button"
+                      onClick={() => setStartTime(slot.label)}
+                      aria-pressed={active}
+                      className={cn(
+                        "rounded-lg border px-2.5 py-1.5 text-sm font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-muted"
+                      )}
+                    >
+                      {slot.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-xs text-muted-foreground">
+                  Pro tento den nejsou podle pracovní doby volné termíny.
+                </p>
+                <Input
+                  type="time"
+                  aria-label="Čas"
+                  value={startTime}
+                  onChange={(event) => setStartTime(event.target.value)}
+                  className="w-32"
+                />
+              </div>
+            )}
+          </div>
+
+          {slots && slots.length > 0 && (
+            <div className="flex items-center justify-between gap-3 rounded-xl bg-muted/50 px-3 py-2">
+              <span className="text-xs text-muted-foreground">
+                Vybraný čas
+              </span>
+              <Input
+                type="time"
+                aria-label="Čas"
+                value={startTime}
+                onChange={(event) => setStartTime(event.target.value)}
+                className="h-8 w-28"
+              />
+            </div>
+          )}
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
-              <Label htmlFor={`approve-price-${booking.id}`}>
-                Cena (Kč)
-              </Label>
+              <Label htmlFor={`approve-price-${booking.id}`}>Cena (Kč)</Label>
               <Input
                 id={`approve-price-${booking.id}`}
                 type="number"
                 min={0}
                 step={100}
                 value={priceCzk}
-                onChange={(e) => setPriceCzk(e.target.value)}
+                onChange={(event) => setPriceCzk(event.target.value)}
                 placeholder="Dle domluvy"
               />
             </div>
@@ -172,20 +248,14 @@ export function ApproveDialog({ booking }: { booking: BookingView }) {
                 min={0}
                 step={50}
                 value={depositCzk}
-                onChange={(e) => setDepositCzk(e.target.value)}
+                onChange={(event) => setDepositCzk(event.target.value)}
               />
             </div>
           </div>
           <p className="text-xs text-muted-foreground">
             {depositIsZero
               ? "Bez zálohy – termín se potvrdí okamžitě, klient dostane e-mail."
-              : `Klient dostane e-mail s ${
-                  booking.qrAvailable && booking.cardAvailable
-                    ? "QR platbou i možností karty"
-                    : booking.qrAvailable
-                      ? "QR platbou (převodem)"
-                      : "platbou kartou"
-                } – potvrdíte po přijetí platby.`}
+              : `Klient dostane e-mail s QR platbou na váš účet – termín potvrdíte po přijetí platby.`}
           </p>
         </div>
         <DialogFooter>

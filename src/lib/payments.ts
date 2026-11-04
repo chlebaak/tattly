@@ -1,27 +1,43 @@
 import { buildQrDataUri, buildSpaydString } from "./qr";
 
-export function variableSymbolForBooking(bookingId: string): string {
-  const hex = bookingId.replace(/-/g, "").slice(0, 12);
-  const num = parseInt(hex, 16) % 1_000_000_000;
-  return String(num).padStart(9, "0");
-}
-
 export async function buildDepositQr(params: {
   iban: string;
   amountMinor: number;
   currency: string;
-  bookingId: string;
+  variableSymbol: string;
   artistName: string;
-}): Promise<{ variableSymbol: string; dataUri: string | null }> {
-  const variableSymbol = variableSymbolForBooking(params.bookingId);
+}): Promise<{ dataUri: string | null }> {
   const dataUri = await buildQrDataUri(
     buildSpaydString({
       iban: params.iban,
       amountMinor: params.amountMinor,
       currency: params.currency,
-      variableSymbol,
+      variableSymbol: params.variableSymbol,
       message: `Zaloha - ${params.artistName}`,
     })
   );
-  return { variableSymbol, dataUri };
+  return { dataUri };
+}
+
+/**
+ * QR pro vrácení zálohy – tatér ho naskenuje ve své bankovní aplikaci
+ * a peníze pošle na účet klienta.
+ */
+export async function buildRefundQr(params: {
+  iban: string;
+  amountMinor: number;
+  currency: string;
+  variableSymbol?: string | null;
+  artistName: string;
+}): Promise<{ dataUri: string | null }> {
+  const dataUri = await buildQrDataUri(
+    buildSpaydString({
+      iban: params.iban,
+      amountMinor: params.amountMinor,
+      currency: params.currency,
+      variableSymbol: params.variableSymbol ?? "",
+      message: `Vraceni zalohy - ${params.artistName}`,
+    })
+  );
+  return { dataUri };
 }

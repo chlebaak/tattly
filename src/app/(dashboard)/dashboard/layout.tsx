@@ -1,16 +1,12 @@
 import Link from "next/link";
-import { MenuIcon } from "lucide-react";
-import { LogoBlob, Wordmark } from "@/components/brand";
-import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetTitle,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import { appUrl } from "@/lib/env";
+import { getActionCount } from "@/lib/dashboard";
 import { requireProfile } from "@/lib/session";
+import { LogoBlob, Wordmark } from "@/components/brand";
+import { MobileTabs } from "@/components/dashboard/mobile-tabs";
 import { SidebarNav } from "./sidebar-nav";
-import { Topbar } from "./topbar";
+import { SidebarProfile } from "./sidebar-profile";
+import { UserMenu } from "./user-menu";
 
 export default async function DashboardLayout({
   children,
@@ -18,51 +14,58 @@ export default async function DashboardLayout({
   children: React.ReactNode;
 }) {
   const profile = await requireProfile();
+  const attentionCount = await getActionCount(profile.id);
+  const publicUrl = `${appUrl()}/artist/${profile.slug}`;
 
-  const mobileNav = (
-    <Sheet>
-      <SheetTrigger asChild>
-        <Button
-          variant="ghost"
-          size="icon"
-          aria-label="Menu"
-          className="lg:hidden"
-        >
-          <MenuIcon className="size-4" />
-        </Button>
-      </SheetTrigger>
-      <SheetContent side="left" className="w-64 overflow-y-auto p-4">
-        <SheetTitle className="flex items-center gap-2">
-          <LogoBlob className="size-7" />
-          <Wordmark className="text-xs" />
-        </SheetTitle>
-        <div className="mt-6">
-          <SidebarNav />
-        </div>
-      </SheetContent>
-    </Sheet>
+  const userMenu = (
+    <UserMenu
+      displayName={profile.displayName}
+      email={profile.email}
+      slug={profile.slug}
+      avatarUrl={profile.avatarUrl}
+    />
   );
 
   return (
-    <div className="min-h-svh lg:grid lg:grid-cols-[240px_1fr]">
-      <aside className="sticky top-0 hidden h-svh flex-col border-r bg-card/60 px-4 py-6 lg:flex">
-        <Link href="/dashboard" className="mb-8 flex items-center gap-2.5 px-2">
+    <div className="min-h-svh lg:grid lg:grid-cols-[232px_1fr]">
+      <aside className="sticky top-0 hidden h-svh flex-col border-r border-border bg-sidebar px-4 py-6 lg:flex">
+        <Link
+          href="/dashboard"
+          className="mb-8 flex items-center gap-2.5 px-2"
+          aria-label="Tattly – přehled"
+        >
           <LogoBlob className="size-8" />
-          <Wordmark className="text-sm" />
+          <Wordmark className="text-base" />
         </Link>
-        <SidebarNav />
+        <SidebarNav attentionCount={attentionCount} />
+        <div className="mt-4">
+          <SidebarProfile
+            displayName={profile.displayName}
+            slug={profile.slug}
+            avatarUrl={profile.avatarUrl}
+            url={publicUrl}
+          />
+        </div>
       </aside>
 
       <div className="min-w-0">
-        <Topbar
-          displayName={profile.displayName}
-          email={profile.email}
-          slug={profile.slug}
-          avatarUrl={profile.avatarUrl}
-        >
-          {mobileNav}
-        </Topbar>
-        <main className="mx-auto max-w-6xl px-4 py-8">{children}</main>
+        <header className="sticky top-0 z-30 flex h-14 items-center justify-between border-b border-border bg-background px-4 lg:hidden">
+          <Link
+            href="/dashboard"
+            className="flex items-center gap-2"
+            aria-label="Tattly – přehled"
+          >
+            <LogoBlob className="size-7" />
+            <Wordmark className="text-sm" />
+          </Link>
+          {userMenu}
+        </header>
+
+        <main className="mx-auto w-full max-w-[1120px] px-4 pt-6 pb-24 sm:px-6 lg:px-8 lg:py-10">
+          {children}
+        </main>
+
+        <MobileTabs attentionCount={attentionCount} />
       </div>
     </div>
   );

@@ -1,9 +1,17 @@
-import { and, eq, inArray, sql } from "drizzle-orm";
+import { and, eq, inArray, ne, sql } from "drizzle-orm";
 import { addDays, format, parseISO } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
 import { db } from "@/db";
-import { bookings, profiles, type BookingRules } from "@/db/schema";
+import {
+  bookings,
+  profiles,
+  type BookingRules,
+  type Profile,
+} from "@/db/schema";
+import { googleAccessForProfile, queryFreebusy } from "./google";
 import { generateSlotsForWindow, type BusyInterval, type Slot } from "./slots";
+
+export { resolveSlotInterval } from "./slots";
 
 export type { Slot, BusyInterval };
 
@@ -21,9 +29,10 @@ function zonedTime(day: string, hhmm: string, timezone: string): Date {
   return fromZonedTime(`${day}T${hhmm}:00`, timezone);
 }
 
-function dayKeyOf(day: string, timezone: string): string {
-  const noon = fromZonedTime(`${day}T12:00:00`, timezone);
-  return DAY_KEYS[noon.getUTCDay()]!;
+function dayKeyOf(day: string): string {
+  // Den v týdnu se bere z kalendářního data (UTC poledne), ne z okamžiku
+  // v pásmu tatéra – jinak by se u pásem UTC+13 a UTC-12 posunul o den.
+  return DAY_KEYS[new Date(`${day}T12:00:00Z`).getUTCDay()]!;
 }
 
 function dayString(base: Date, timezone: string): string {
@@ -39,10 +48,36 @@ export function hasWeeklySchedule(
   );
 }
 
+/**
+ * Volné termíny v rámci jednoho dne. Používá se v dashboardu při schvalování
+ * a přesunu rezervace (bez minimální lhůty) i v kalendáři (s lhůtou).
+ */
+export async function getDaySlots(params: {
+  profileId: string;
+  dayKey: string;
+  timezone: string;
+  durationMinutes: number;
+  intervalMinutes?: number;
+  excludeBookingId?: string;
+  respectLeadTime?: boolean;
+}): Promise<Slot[]> {
+  const from = fromZonedTime(`${params.dayKey}T12:00:00`, params.timezone);
+  return getAvailability({
+    profileId: params.profileId,
+    from,
+    days: 1,
+    durationMinutes: params.durationMinutes,
+    intervalMinutes: params.intervalMinutes,
+    excludeBookingId: params.excludeBookingId,
+    ignoreLeadTime: !params.respectLeadTime,
+  });
+}
+
 export async function getBusyIntervals(
   profileId: string,
   from: Date,
-  to: Date
+  to: Date,
+  excludeBookingId?: string
 ): Promise<BusyInterval[]> {
   const rows = await db
     .select({
@@ -54,12 +89,52 @@ export async function getBusyIntervals(
       and(
         eq(bookings.profileId, profileId),
         inArray(bookings.status, ["deposit_pending", "confirmed"]),
+        excludeBookingId ? ne(bookings.id, excludeBookingId) : undefined,
         sql`tstzrange(start_time, end_time, '[)') && tstzrange(${from.toISOString()}::timestamptz, ${to.toISOString()}::timestamptz, '[)')`
       )
     );
   return rows
     .filter((r) => r.start && r.end)
     .map((r) => ({ start: r.start as Date, end: r.end as Date }));
+}
+
+/**
+ * Obsazenost z Google kalendáře. Když propojení nefunguje, vrátí prázdno
+ * (a `googleAccessForProfile` případně označí profil k opětovnému připojení).
+ */
+export async function getGoogleBusy(
+  profile: Profile,
+  from: Date,
+  to: Date
+): Promise<BusyInterval[]> {
+  const accessToken = await googleAccessForProfile(profile);
+  const calendarId = profile.googleCalendarId;
+  if (!accessToken || !calendarId) return [];
+  try {
+    return await queryFreebusy({
+      accessToken,
+      calendarId,
+      timeMin: from,
+      timeMax: to,
+    });
+  } catch (error) {
+    console.error("Google freebusy failed", error);
+    return [];
+  }
+}
+
+/** Obsazenost z databáze i z Google dohromady. */
+export async function getBusyWithGoogle(
+  profile: Profile,
+  from: Date,
+  to: Date,
+  excludeBookingId?: string
+): Promise<BusyInterval[]> {
+  const [dbBusy, googleBusy] = await Promise.all([
+    getBusyIntervals(profile.id, from, to, excludeBookingId),
+    getGoogleBusy(profile, from, to),
+  ]);
+  return [...dbBusy, ...googleBusy];
 }
 
 export async function getAvailability(params: {
@@ -69,6 +144,10 @@ export async function getAvailability(params: {
   durationMinutes?: number;
   intervalMinutes?: number;
   googleBusy?: BusyInterval[];
+  /** Ignoruje se vlastní obsazený termín (přesun rezervace). */
+  excludeBookingId?: string;
+  /** Přeskočí minimální lhůtu – pro schvalování ze strany tatéra. */
+  ignoreLeadTime?: boolean;
 }): Promise<Slot[]> {
   const [profile] = await db
     .select({
@@ -90,7 +169,9 @@ export async function getAvailability(params: {
   const leadHours = rules.minLeadTimeHours ?? 24;
   const maxPerDay = rules.maxBookingsPerDay;
   const duration = params.durationMinutes ?? interval;
-  const earliestStart = new Date(Date.now() + leadHours * 60 * 60 * 1000);
+  const earliestStart = params.ignoreLeadTime
+    ? new Date()
+    : new Date(Date.now() + leadHours * 60 * 60 * 1000);
 
   const startDay = dayString(params.from, timezone);
   const lastDay = format(
@@ -100,10 +181,13 @@ export async function getAvailability(params: {
   const rangeStart = zonedTime(startDay, "00:00", timezone);
   const rangeEnd = zonedTime(lastDay, "23:59", timezone);
 
-  const busy = [
-    ...(await getBusyIntervals(params.profileId, rangeStart, rangeEnd)),
-    ...(params.googleBusy ?? []),
-  ];
+  const dbBusy = await getBusyIntervals(
+    params.profileId,
+    rangeStart,
+    rangeEnd,
+    params.excludeBookingId
+  );
+  const busy = [...dbBusy, ...(params.googleBusy ?? [])];
 
   const slots: Slot[] = [];
   for (let offset = 0; offset < params.days; offset++) {
@@ -114,11 +198,13 @@ export async function getAvailability(params: {
     const exception = rules.exceptions?.[day];
     if (exception?.closed) continue;
     const windows =
-      exception?.windows ?? schedule[dayKeyOf(day, timezone)] ?? [];
+      exception?.windows ?? schedule[dayKeyOf(day)] ?? [];
     if (!windows.length) continue;
     const dayStart = zonedTime(day, "00:00", timezone);
     const dayEnd = zonedTime(day, "23:59", timezone);
-    const dayBooked = busy.filter((b) =>
+    // Limit na den počítá jen rezervace – události z Google kalendáře
+    // blokují konkrétní časy, ale „plný den" z nich dělat nechceme.
+    const dayBooked = dbBusy.filter((b) =>
       overlaps(b, { start: dayStart, end: dayEnd })
     ).length;
     if (maxPerDay !== undefined && dayBooked >= maxPerDay) continue;

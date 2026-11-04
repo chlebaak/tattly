@@ -35,3 +35,22 @@ export function generateSlotsForWindow(params: {
   }
   return slots;
 }
+
+/**
+ * Efektivní rozestup startů: služba → výchozí nastavení → délka služby.
+ * Jediné místo, které určuje, jak často mohou termíny začínat – používají
+ * ho veřejné sloty, náhledy v nastavení i nabídky při schvalování.
+ */
+export function resolveSlotInterval(
+  rules: { slotIntervalMinutes?: number | null } | null | undefined,
+  service?: {
+    durationMinutes?: number | null;
+    slotIntervalMinutes?: number | null;
+  } | null
+): number {
+  const own = service?.slotIntervalMinutes;
+  if (own && own >= 5) return own;
+  const fallback = rules?.slotIntervalMinutes;
+  if (fallback && fallback >= 5) return fallback;
+  return Math.max(5, service?.durationMinutes ?? 30);
+}

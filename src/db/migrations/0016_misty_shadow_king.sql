@@ -1,0 +1,1 @@
+ALTER TABLE "profiles" ADD COLUMN "google_needs_reconnect" boolean DEFAULT false NOT NULL;

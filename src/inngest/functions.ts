@@ -1,59 +1,27 @@
 import { eq } from "drizzle-orm";
 import { db } from "@/db";
-import { bookings, profiles, services } from "@/db/schema";
+import { bankConnections } from "@/db/schema";
 import { inngest } from "./client";
-import { buildIcsAttachment } from "@/lib/calendar";
 import {
-  depositExpiredEmailForClient,
-  reminderEmailForClient,
-  sendEmail,
-} from "@/lib/email";
+  expireDueDeposit,
+  findDueDeposits,
+  findDueReminders,
+  sendDueReminder,
+} from "@/lib/booking-jobs";
+import {
+  purgeDueBookingAssets,
+  purgeOrphanedBookingAssets,
+} from "@/lib/booking-lifecycle";
+import { syncBankConnection } from "@/lib/bank/sync";
 
 export const functions = [
   inngest.createFunction(
     { id: "deposit-expire", retries: 3, triggers: { event: "deposit/expire" } },
     async ({ event, step }) => {
       const bookingId = event.data.bookingId as string;
-
-      const expired = await step.run("expire-if-unpaid", async () => {
-        const [booking] = await db
-          .select()
-          .from(bookings)
-          .where(eq(bookings.id, bookingId))
-          .limit(1);
-        if (!booking) return false;
-        if (booking.status !== "deposit_pending") return false;
-        if (!booking.depositExpiresAt || booking.depositExpiresAt > new Date()) {
-          return false;
-        }
-        await db
-          .update(bookings)
-          .set({ status: "expired" })
-          .where(eq(bookings.id, bookingId));
-        return true;
-      });
-
-      if (expired) {
-        await step.run("notify-client", async () => {
-          const [row] = await db
-            .select({ booking: bookings, artistName: profiles.displayName })
-            .from(bookings)
-            .innerJoin(profiles, eq(bookings.profileId, profiles.id))
-            .where(eq(bookings.id, bookingId))
-            .limit(1);
-          if (!row) return;
-          const email = depositExpiredEmailForClient({
-            clientName: row.booking.clientName,
-            artistName: row.artistName,
-          });
-          await sendEmail({
-            to: row.booking.clientEmail,
-            subject: email.subject,
-            html: email.html,
-          });
-        });
-      }
-
+      const expired = await step.run("expire-if-unpaid", () =>
+        expireDueDeposit(bookingId)
+      );
       return { expired };
     }
   ),
@@ -61,89 +29,125 @@ export const functions = [
     { id: "booking-remind", retries: 3, triggers: { event: "booking/remind" } },
     async ({ event, step }) => {
       const bookingId = event.data.bookingId as string;
-
-      const reminded = await step.run("send-reminder", async () => {
-        const [row] = await db
-          .select({
-            booking: bookings,
-            artistName: profiles.displayName,
-            artistEmail: profiles.email,
-            timezone: profiles.timezone,
-            addressLine: profiles.addressLine,
-            city: profiles.city,
-            zip: profiles.zip,
-            serviceTitle: services.title,
-            serviceDurationMinutes: services.durationMinutes,
-          })
-          .from(bookings)
-          .innerJoin(profiles, eq(bookings.profileId, profiles.id))
-          .leftJoin(services, eq(bookings.serviceId, services.id))
-          .where(eq(bookings.id, bookingId))
-          .limit(1);
-        if (!row) return false;
-        const booking = row.booking;
-        if (booking.status !== "confirmed") return false;
-        if (booking.reminderSentAt || !booking.startTime) return false;
-        const now = new Date();
-        const windowStart = new Date(
-          booking.startTime.getTime() - 24 * 60 * 60 * 1000
+      const reminded = await step.run("send-reminder", () =>
+        sendDueReminder(bookingId)
+      );
+      return { reminded };
+    }
+  ),
+  inngest.createFunction(
+    {
+      id: "booking-sweep",
+      retries: 2,
+      concurrency: { limit: 1 },
+      triggers: [
+        { cron: "*/15 * * * *" },
+        { event: "booking/sweep" },
+      ],
+    },
+    async ({ step }) => {
+      // Záchranná síť: kdyby se ztratila plánovaná událost, dohoníme to tady.
+      const dueDeposits = await step.run("find-due-deposits", () =>
+        findDueDeposits()
+      );
+      let expired = 0;
+      for (const bookingId of dueDeposits) {
+        const didExpire = await step.run(`expire-${bookingId}`, () =>
+          expireDueDeposit(bookingId)
         );
-        if (now < windowStart || now >= booking.startTime) return false;
+        if (didExpire) expired += 1;
+      }
 
-        const ics = await buildIcsAttachment({
-          uid: booking.id,
-          title: `${row.serviceTitle ?? "Termín"} – ${row.artistName}`,
-          start: booking.startTime,
-          durationMinutes:
-            row.serviceDurationMinutes ??
-            (booking.endTime
-              ? Math.round(
-                  (booking.endTime.getTime() - booking.startTime.getTime()) /
-                    60000
-                )
-              : 60),
-          description: booking.description,
-          location: row.addressLine
-            ? `${row.addressLine}, ${row.city ?? ""}${
-                row.zip ? ` ${row.zip}` : ""
-              }`.replace(/, $/, "")
-            : null,
-          organizerName: row.artistName,
-          organizerEmail: row.artistEmail,
-          attendeeName: booking.clientName,
-          attendeeEmail: booking.clientEmail,
-        });
+      const dueReminders = await step.run("find-due-reminders", () =>
+        findDueReminders()
+      );
+      let reminded = 0;
+      for (const bookingId of dueReminders) {
+        const didRemind = await step.run(`remind-${bookingId}`, () =>
+          sendDueReminder(bookingId)
+        );
+        if (didRemind) reminded += 1;
+      }
 
-        const email = reminderEmailForClient({
-          clientName: booking.clientName,
-          artistName: row.artistName,
-          serviceTitle: row.serviceTitle ?? "Termín",
-          when: booking.startTime,
-          timezone: row.timezone,
-          address:
-            row.addressLine
-              ? {
-                  addressLine: row.addressLine,
-                  city: row.city ?? "",
-                  zip: row.zip ?? "",
-                }
-              : null,
-        });
-        await sendEmail({
-          to: booking.clientEmail,
-          subject: email.subject,
-          html: email.html,
-          attachments: ics ? [ics] : undefined,
-        });
+      return { dueDeposits: dueDeposits.length, expired, dueReminders: dueReminders.length, reminded };
+    }
+  ),
 
-        await db
-          .update(bookings)
-          .set({ reminderSentAt: new Date() })
-          .where(eq(bookings.id, bookingId));
-        return true;
+  inngest.createFunction(
+    {
+      id: "bank-sync",
+      retries: 2,
+      triggers: [{ cron: "*/10 * * * *" }],
+    },
+    async ({ step }) => {
+      const activeConnections = await step.run("load-connections", async () => {
+        const rows = await db
+          .select({ id: bankConnections.id })
+          .from(bankConnections)
+          .where(eq(bankConnections.status, "active"));
+        return rows.map((row) => row.id);
       });
 
-      return { reminded };
+      let imported = 0;
+      let matched = 0;
+      for (const connectionId of activeConnections) {
+        const result = await step.run(`sync-${connectionId}`, async () =>
+          syncBankConnection(connectionId)
+        );
+        imported += result.imported;
+        matched += result.matched;
+      }
+
+      return { connections: activeConnections.length, imported, matched };
+    }
+  ),
+  inngest.createFunction(
+    {
+      id: "assets-purge",
+      retries: 2,
+      concurrency: { limit: 1 },
+      triggers: [
+        { cron: "TZ=Europe/Prague 0 4 * * *" },
+        { event: "assets/purge" },
+      ],
+    },
+    async ({ event, step }) => {
+      const BATCH_SIZE = 50;
+      const MAX_BATCHES = 10;
+
+      let bookings = 0;
+      let assetsDeleted = 0;
+      let answersCleared = 0;
+
+      for (let batch = 0; batch < MAX_BATCHES; batch += 1) {
+        const result = await step.run(`purge-batch-${batch}`, () =>
+          purgeDueBookingAssets({ limit: BATCH_SIZE })
+        );
+        bookings += result.bookings;
+        assetsDeleted += result.assetsDeleted;
+        answersCleared += result.answersCleared;
+        if (result.bookings < BATCH_SIZE) break;
+      }
+
+      // Ruční běh může lhůtu pro osiřelé soubory zkrátit (testy, dohánění).
+      const rawGrace = (event.data as { orphanGraceDays?: unknown } | undefined)
+        ?.orphanGraceDays;
+      const orphanGraceDays =
+        typeof rawGrace === "number"
+          ? Math.min(Math.max(rawGrace, 0), 365)
+          : undefined;
+
+      const orphans = await step.run("purge-orphans", () =>
+        purgeOrphanedBookingAssets({ graceDays: orphanGraceDays })
+      );
+
+      return {
+        bookings,
+        assetsDeleted,
+        answersCleared,
+        orphansScanned: orphans.scanned,
+        orphansDeleted: orphans.deleted,
+      };
     }
   ),
 ];

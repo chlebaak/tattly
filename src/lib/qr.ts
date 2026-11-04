@@ -28,9 +28,11 @@ export function buildSpaydString(params: {
 export async function buildQrDataUri(text: string): Promise<string | null> {
   try {
     return await QRCode.toDataURL(text, {
-      margin: 1,
+      // Doporučení pro QR Platbu: korekční faktor L a klidová zóna 4 moduly,
+      // aby kód spolehlivě přečetly bankovní aplikace i z displeje.
+      margin: 4,
       width: 240,
-      errorCorrectionLevel: "M",
+      errorCorrectionLevel: "L",
     });
   } catch (error) {
     console.error("QR generation failed", error);

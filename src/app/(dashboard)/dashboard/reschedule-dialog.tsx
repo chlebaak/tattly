@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
+import { cn } from "cn";
 import { Button } from "@/components/ui/button";
 import { DateField } from "@/components/date-field";
 import {
@@ -16,7 +17,8 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { rescheduleBooking } from "./actions";
+import { Skeleton } from "@/components/ui/skeleton";
+import { getSuggestedSlots, rescheduleBooking } from "./actions";
 import type { BookingView } from "./booking-view";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -28,8 +30,22 @@ const ERROR_MESSAGES: Record<string, string> = {
   UNKNOWN: "Něco se pokazilo. Zkuste to znovu.",
 };
 
-export function RescheduleDialog({ booking }: { booking: BookingView }) {
-  const [open, setOpen] = useState(false);
+const DURATIONS = [30, 45, 60, 90, 120, 180, 240, 300, 360, 480];
+
+export function RescheduleDialog({
+  booking,
+  trigger,
+  open: openProp,
+  onOpenChange,
+}: {
+  booking: BookingView;
+  trigger?: ReactNode;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+}) {
+  const controlled = openProp !== undefined;
+  const [innerOpen, setInnerOpen] = useState(false);
+  const open = controlled ? openProp : innerOpen;
   const [pending, setPending] = useState(false);
   const [date, setDate] = useState(
     booking.proposedStartValue?.split("T")[0] ?? ""
@@ -38,12 +54,51 @@ export function RescheduleDialog({ booking }: { booking: BookingView }) {
     booking.proposedStartValue?.split("T")[1]?.slice(0, 5) ?? ""
   );
   const [duration, setDuration] = useState(
-    String(booking.durationMinutes ?? 60)
+    String(booking.durationMinutes ?? booking.serviceDurationMinutes ?? 60)
   );
+  const [slots, setSlots] = useState<{ iso: string; label: string }[] | null>(
+    null
+  );
+  const [slotsLoading, setSlotsLoading] = useState(false);
   const router = useRouter();
 
+  function setOpen(next: boolean) {
+    if (!controlled) setInnerOpen(next);
+    onOpenChange?.(next);
+  }
+
+  useEffect(() => {
+    if (!open) return;
+    setDate(booking.proposedStartValue?.split("T")[0] ?? "");
+    setTime(booking.proposedStartValue?.split("T")[1]?.slice(0, 5) ?? "");
+    setDuration(
+      String(booking.durationMinutes ?? booking.serviceDurationMinutes ?? 60)
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  useEffect(() => {
+    if (!open || !date) return;
+    let cancelled = false;
+    setSlotsLoading(true);
+    getSuggestedSlots({ bookingId: booking.id, dayKey: date })
+      .then((result) => {
+        if (!cancelled) setSlots(result.ok ? result.slots : []);
+      })
+      .catch(() => {
+        if (!cancelled) setSlots([]);
+      })
+      .finally(() => {
+        if (!cancelled) setSlotsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, date, booking.id]);
+
   async function onSubmit() {
-    const startIso = date && time ? new Date(`${date}T${time}`).toISOString() : "";
+    const startIso =
+      date && time ? new Date(`${date}T${time}`).toISOString() : "";
     const durationMinutes = Number(duration);
     if (!startIso) {
       toast.error("Vyberte nové datum a čas.");
@@ -72,23 +127,9 @@ export function RescheduleDialog({ booking }: { booking: BookingView }) {
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        if (next) {
-          setDate(booking.proposedStartValue?.split("T")[0] ?? "");
-          setTime(booking.proposedStartValue?.split("T")[1]?.slice(0, 5) ?? "");
-          setDuration(String(booking.durationMinutes ?? 60));
-        }
-        setOpen(next);
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button type="button" size="sm" variant="outline">
-          Upravit termín
-        </Button>
-      </DialogTrigger>
-      <DialogContent className="sm:max-w-sm">
+    <Dialog open={open} onOpenChange={setOpen}>
+      {trigger ? <DialogTrigger asChild>{trigger}</DialogTrigger> : null}
+      <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>Upravit termín</DialogTitle>
           <DialogDescription>
@@ -106,14 +147,53 @@ export function RescheduleDialog({ booking }: { booking: BookingView }) {
               minToday
             />
           </div>
-          <div className="grid gap-2 sm:grid-cols-2">
+
+          <div className="space-y-2">
+            <Label>Volné termíny</Label>
+            {slotsLoading ? (
+              <div className="flex flex-wrap gap-1.5">
+                {[0, 1, 2, 3, 4, 5].map((index) => (
+                  <Skeleton key={index} className="h-8 w-16 rounded-lg" />
+                ))}
+              </div>
+            ) : slots && slots.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5">
+                {slots.map((slot) => {
+                  const active = slot.label === time;
+                  return (
+                    <button
+                      key={slot.iso}
+                      type="button"
+                      onClick={() => setTime(slot.label)}
+                      aria-pressed={active}
+                      className={cn(
+                        "rounded-lg border px-2.5 py-1.5 text-sm font-medium tabular-nums transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring",
+                        active
+                          ? "border-primary bg-primary text-primary-foreground"
+                          : "bg-background hover:bg-muted"
+                      )}
+                    >
+                      {slot.label}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : (
+              <p className="text-xs text-muted-foreground">
+                Pro tento den nejsou podle pracovní doby volné termíny – čas
+                zadejte ručně.
+              </p>
+            )}
+          </div>
+
+          <div className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2">
               <Label htmlFor={`rs-time-${booking.id}`}>Čas</Label>
               <Input
                 id={`rs-time-${booking.id}`}
                 type="time"
                 value={time}
-                onChange={(e) => setTime(e.target.value)}
+                onChange={(event) => setTime(event.target.value)}
               />
             </div>
             <div className="space-y-2">
@@ -123,14 +203,21 @@ export function RescheduleDialog({ booking }: { booking: BookingView }) {
                 type="number"
                 min={15}
                 step={15}
+                list={`rs-durations-${booking.id}`}
                 value={duration}
-                onChange={(e) => setDuration(e.target.value)}
+                onChange={(event) => setDuration(event.target.value)}
               />
+              <datalist id={`rs-durations-${booking.id}`}>
+                {DURATIONS.map((value) => (
+                  <option key={value} value={value} />
+                ))}
+              </datalist>
             </div>
           </div>
+
           <p className="text-xs text-muted-foreground">
             {booking.status === "confirmed"
-              ? "Google kalendář i klient se automaticky aktualizují."
+              ? "Změna se zapíše do Google kalendáře a klient dostane e-mail."
               : "Rezervace zatím čeká na zálohu – změna se pošle klientovi e-mailem."}
           </p>
         </div>

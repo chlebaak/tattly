@@ -29,7 +29,37 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "failed",
 ]);
 
-export const paymentMethodEnum = pgEnum("payment_method", ["stripe", "qr"]);
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "stripe",
+  "qr",
+  "bank",
+]);
+
+export type ClientRequest = {
+  kind: "reschedule" | "cancel" | "question";
+  message?: string;
+  createdAt: string;
+};
+
+export type BookingEventType =
+  | "created"
+  | "approved"
+  | "deposit_sent"
+  | "deposit_marked_paid"
+  | "deposit_paid"
+  | "confirmed"
+  | "reminder"
+  | "rescheduled"
+  | "completed"
+  | "cancelled"
+  | "rejected"
+  | "expired"
+  | "refund_requested"
+  | "refunded"
+  | "message"
+  | "request"
+  | "request_resolved"
+  | "assets_purged";
 
 export type WeeklySchedule = Record<string, { from: string; to: string }[]>;
 
@@ -79,13 +109,22 @@ export const profiles = pgTable("profiles", {
   defaultDepositAmount: integer("default_deposit_amount")
     .notNull()
     .default(150000),
-  stripeAccountId: varchar("stripe_account_id", { length: 255 }),
   ico: varchar("ico", { length: 16 }),
   dic: varchar("dic", { length: 16 }),
   bankAccount: varchar("bank_account", { length: 64 }),
   invoiceCounter: integer("invoice_counter").notNull().default(1),
+  portfolioImages: jsonb("portfolio_images")
+    .$type<{ key: string; alt?: string }[]>()
+    .notNull()
+    .default([]),
   googleRefreshToken: text("google_refresh_token"),
   googleCalendarId: varchar("google_calendar_id", { length: 255 }),
+  /**
+   * True = Google přístup vypršel/odvolán (invalid_grant). Klientovi dál
+   * ukazujeme termíny, ale tatér dostane v aplikaci výzvu k opětovnému
+   * připojení, aby se rezervace nepotkávaly s jeho kalendářem.
+   */
+  googleNeedsReconnect: boolean("google_needs_reconnect").notNull().default(false),
   bookingRules: jsonb("booking_rules")
     .$type<BookingRules>()
     .notNull()
@@ -131,10 +170,12 @@ export const bookings = pgTable(
       onDelete: "set null",
     }),
     status: bookingStatusEnum("status").notNull().default("pending_review"),
+    statusCode: varchar("status_code", { length: 16 }).unique(),
     clientName: varchar("client_name", { length: 120 }).notNull(),
     clientEmail: varchar("client_email", { length: 255 }).notNull(),
     clientPhone: varchar("client_phone", { length: 32 }),
     description: text("description"),
+    notes: text("notes"),
     formData: jsonb("form_data")
       .$type<Record<string, string | number | boolean>>()
       .notNull()
@@ -143,11 +184,20 @@ export const bookings = pgTable(
     endTime: timestamp("end_time", { withTimezone: true }),
     depositAmount: integer("deposit_amount"),
     depositExpiresAt: timestamp("deposit_expires_at", { withTimezone: true }),
+    variableSymbol: varchar("variable_symbol", { length: 10 }),
+    clientPaidAt: timestamp("client_paid_at", { withTimezone: true }),
+    clientIban: varchar("client_iban", { length: 64 }),
+    openRequest: jsonb("open_request").$type<ClientRequest | null>(),
     priceMinor: integer("price_minor"),
     invoiceNumber: varchar("invoice_number", { length: 32 }),
     invoicedAt: timestamp("invoiced_at", { withTimezone: true }),
     reminderSentAt: timestamp("reminder_sent_at", { withTimezone: true }),
     googleEventId: varchar("google_event_id", { length: 255 }),
+    /**
+     * Kdy smazat citlivé přílohy (fotky + odpovědi z dotazníku). `null` =
+     * není co uklízet (úklid proběhl) nebo u rezervace bez citlivých dat.
+     */
+    assetsPurgeAfter: timestamp("assets_purge_after", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -155,6 +205,7 @@ export const bookings = pgTable(
   (t) => [
     index("bookings_profile_status_idx").on(t.profileId, t.status),
     index("bookings_start_idx").on(t.startTime),
+    index("bookings_assets_purge_idx").on(t.assetsPurgeAfter),
   ]
 );
 
@@ -180,21 +231,93 @@ export const payments = pgTable("payments", {
   bookingId: uuid("booking_id")
     .notNull()
     .references(() => bookings.id, { onDelete: "cascade" }),
-  stripeSessionId: varchar("stripe_session_id", { length: 255 }).unique(),
-  stripePaymentIntentId: varchar("stripe_payment_intent_id", {
-    length: 255,
-  }).unique(),
+  /** Reference do budoucí platební brány (teď se nepoužívá). */
+  externalRef: varchar("external_ref", { length: 255 }),
   method: paymentMethodEnum("method"),
   amount: integer("amount").notNull(),
   currency: varchar("currency", { length: 3 }).notNull().default("CZK"),
   status: paymentStatusEnum("status").notNull().default("pending"),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  refundedAt: timestamp("refunded_at", { withTimezone: true }),
+  refundNote: text("refund_note"),
   createdAt: timestamp("created_at", { withTimezone: true })
     .notNull()
     .defaultNow(),
 });
+
+export const bookingEvents = pgTable(
+  "booking_events",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => bookings.id, { onDelete: "cascade" }),
+    type: varchar("type", { length: 32 }).notNull(),
+    actor: varchar("actor", { length: 16 }).notNull().default("system"),
+    message: text("message"),
+    meta: jsonb("meta").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("booking_events_booking_idx").on(t.bookingId)]
+);
+
+export const bankConnections = pgTable(
+  "bank_connections",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    profileId: uuid("profile_id")
+      .notNull()
+      .references(() => profiles.id, { onDelete: "cascade" }),
+    provider: varchar("provider", { length: 32 }).notNull().default("fio"),
+    label: varchar("label", { length: 120 }),
+    accountNumber: varchar("account_number", { length: 64 }),
+    tokenEncrypted: text("token_encrypted").notNull(),
+    status: varchar("status", { length: 16 }).notNull().default("active"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("bank_connections_profile_idx").on(t.profileId)]
+);
+
+export const bankTransactions = pgTable(
+  "bank_transactions",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    connectionId: uuid("connection_id")
+      .notNull()
+      .references(() => bankConnections.id, { onDelete: "cascade" }),
+    externalId: varchar("external_id", { length: 64 }).notNull().unique(),
+    amount: integer("amount").notNull(),
+    currency: varchar("currency", { length: 3 }).notNull().default("CZK"),
+    variableSymbol: varchar("variable_symbol", { length: 16 }),
+    message: text("message"),
+    counterpartyAccount: varchar("counterparty_account", { length: 64 }),
+    bookedAt: timestamp("booked_at", { withTimezone: true }).notNull(),
+    direction: varchar("direction", { length: 8 }).notNull(),
+    bookingId: uuid("booking_id").references(() => bookings.id, {
+      onDelete: "set null",
+    }),
+    matchedAt: timestamp("matched_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("bank_transactions_connection_idx").on(t.connectionId),
+    index("bank_transactions_booking_idx").on(t.bookingId),
+  ]
+);
 
 export type Profile = typeof profiles.$inferSelect;
 export type Service = typeof services.$inferSelect;
 export type Booking = typeof bookings.$inferSelect;
 export type BookingAsset = typeof bookingAssets.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
+export type BookingEvent = typeof bookingEvents.$inferSelect;
+export type BankConnection = typeof bankConnections.$inferSelect;
+export type BankTransaction = typeof bankTransactions.$inferSelect;

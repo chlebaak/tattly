@@ -46,7 +46,7 @@ export function UserMenu({
         <button
           type="button"
           aria-label="Menu účtu"
-          className="flex items-center gap-2 rounded-full border py-1 pl-1 pr-2.5 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          className="flex min-h-11 items-center gap-2 rounded-[10px] py-1.5 pl-1 pr-2 transition-colors hover:bg-muted focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <Avatar className="size-7">
             {avatarUrl && <AvatarImage src={avatarUrl} alt={displayName} />}

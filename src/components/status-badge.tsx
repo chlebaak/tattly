@@ -3,49 +3,46 @@ import { cn } from "cn";
 
 type Tone = "attention" | "waiting" | "ok" | "muted";
 
-const TONES: Record<BookingStatus, { tone: Tone; pill: boolean }> = {
-  pending_review: { tone: "attention", pill: true },
-  deposit_pending: { tone: "waiting", pill: true },
-  confirmed: { tone: "ok", pill: false },
-  completed: { tone: "muted", pill: false },
-  rejected: { tone: "muted", pill: false },
-  expired: { tone: "muted", pill: false },
-  cancelled: { tone: "muted", pill: false },
+const STATUS: Record<BookingStatus, Tone> = {
+  pending_review: "attention",
+  deposit_pending: "waiting",
+  confirmed: "ok",
+  completed: "muted",
+  cancelled: "muted",
+  rejected: "muted",
+  expired: "muted",
 };
 
-const DOT: Record<Tone, string> = {
-  attention: "bg-status-attention",
-  waiting: "bg-status-waiting",
-  ok: "bg-status-ok",
-  muted: "bg-status-muted",
-};
-
-const PILL: Record<Tone, string> = {
-  attention: "bg-status-attention-soft",
-  waiting: "bg-status-waiting-soft",
-  ok: "",
-  muted: "",
+const TONE: Record<Tone, { text: string; dot: string }> = {
+  attention: { text: "text-status-attention", dot: "bg-status-attention" },
+  waiting: { text: "text-status-waiting", dot: "bg-status-waiting" },
+  ok: { text: "text-status-ok", dot: "bg-status-ok" },
+  muted: { text: "text-muted-foreground", dot: "bg-muted-foreground/60" },
 };
 
 export function StatusBadge({
   status,
+  size = "default",
   className,
 }: {
   status: BookingStatus;
+  size?: "sm" | "default";
   className?: string;
 }) {
-  const { tone, pill } = TONES[status];
+  const tone = TONE[STATUS[status]];
   return (
     <span
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-full text-xs font-medium",
-        pill
-          ? cn("px-2 py-0.5 text-foreground", PILL[tone])
-          : "text-muted-foreground",
+        "inline-flex shrink-0 items-center gap-1.5 font-medium whitespace-nowrap",
+        size === "sm" ? "text-[11px]" : "text-xs",
+        tone.text,
         className
       )}
     >
-      <span className={cn("size-1.5 rounded-full", DOT[tone])} />
+      <span
+        aria-hidden
+        className={cn("size-1.5 shrink-0 rounded-full", tone.dot)}
+      />
       {BOOKING_STATUS_LABELS[status]}
     </span>
   );

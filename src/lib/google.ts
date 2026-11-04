@@ -1,11 +1,48 @@
 import { decryptSecret } from "./crypto";
 import { requireEnv } from "./env";
+import { eq } from "drizzle-orm";
+import { db } from "@/db";
+import { profiles, type Profile } from "@/db/schema";
 import type { BusyInterval } from "./slots";
 
 export type { BusyInterval };
 
 const TOKEN_URL = "https://oauth2.googleapis.com/token";
 const CALENDAR_API = "https://www.googleapis.com/calendar/v3";
+
+/**
+ * Přístupový token pro daný profil, nebo null když propojení nefunguje.
+ * Když Google odmítne obnovení tokenu (odvolaný souhlas, změna hesla),
+ * označíme profil k opětovnému připojení – jinak by tiše přestaly fungovat
+ * blokace z kalendáře. Jakmile token zase projde, příznak zrušíme.
+ */
+export async function googleAccessForProfile(
+  profile: Profile
+): Promise<string | null> {
+  if (!profile.googleRefreshToken || !profile.googleCalendarId) return null;
+  try {
+    const accessToken = await getAccessTokenForProfile(
+      profile.googleRefreshToken
+    );
+    if (profile.googleNeedsReconnect) {
+      await db
+        .update(profiles)
+        .set({ googleNeedsReconnect: false })
+        .where(eq(profiles.id, profile.id));
+    }
+    return accessToken;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "";
+    if (/failed: (400|401)/.test(message) && !profile.googleNeedsReconnect) {
+      await db
+        .update(profiles)
+        .set({ googleNeedsReconnect: true })
+        .where(eq(profiles.id, profile.id));
+    }
+    console.error("Google access failed", error);
+    return null;
+  }
+}
 
 export async function getAccessTokenForProfile(
   refreshTokenEncrypted: string

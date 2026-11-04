@@ -1,15 +1,18 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { CalendarOffIcon, ChevronDownIcon, PlusIcon, TrashIcon } from "lucide-react";
 import { fromZonedTime } from "date-fns-tz";
 import type { BookingRules } from "@/db/schema";
 import { cn } from "cn";
-import { Panel } from "@/components/panel";
+import { Panel } from "@/components/ui/panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { toast } from "sonner";
+import { useUnsavedChanges } from "@/lib/use-unsaved-changes";
 import { Checkbox } from "@/components/ui/checkbox";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import {
@@ -22,6 +25,7 @@ import {
 import { MonthCalendar, type MonthDay } from "@/components/month-calendar";
 import {
   generateSlotsForWindow,
+  resolveSlotInterval,
   type BusyInterval,
 } from "@/lib/slots";
 import { getBusyForMonth, saveBookingRules } from "./actions";
@@ -77,9 +81,16 @@ function weekdayKeyOf(dateKey: string): string {
 export function ScheduleEditor({
   timezone,
   rules,
+  services,
 }: {
   timezone: string;
   rules: BookingRules;
+  services: {
+    id: string;
+    title: string;
+    durationMinutes: number;
+    slotIntervalMinutes: number | null;
+  }[];
 }) {
   const [tz, setTz] = useState(timezone);
   const [schedule, setSchedule] = useState<Record<string, Window[]>>(() => {
@@ -108,7 +119,10 @@ export function ScheduleEditor({
     String(rules.minLeadTimeHours ?? 24)
   );
   const [slotInterval, setSlotInterval] = useState(
-    String(rules.slotIntervalMinutes ?? 30)
+    rules.slotIntervalMinutes ? String(rules.slotIntervalMinutes) : ""
+  );
+  const [previewServiceId, setPreviewServiceId] = useState(
+    services[0]?.id ?? ""
   );
   const [maxPerDay, setMaxPerDay] = useState(
     rules.maxBookingsPerDay ? String(rules.maxBookingsPerDay) : ""
@@ -125,13 +139,39 @@ export function ScheduleEditor({
   const [pending, setPending] = useState(false);
   const router = useRouter();
 
+  const snapshot = useMemo(
+    () =>
+      JSON.stringify({
+        tz,
+        leadHours,
+        slotInterval,
+        maxPerDay,
+        schedule: DAYS.map((day) => [day.key, schedule[day.key]]),
+        exceptions: Object.entries(exceptions).sort(([a], [b]) =>
+          a.localeCompare(b)
+        ),
+      }),
+    [tz, leadHours, slotInterval, maxPerDay, schedule, exceptions]
+  );
+  const baseline = useRef(snapshot);
+  const dirty = snapshot !== baseline.current;
+  useUnsavedChanges(dirty);
+
   const leadNum = Number.isFinite(Number(leadHours))
     ? Number(leadHours)
     : 24;
-  const intervalNum = Number.isFinite(Number(slotInterval))
-    ? Number(slotInterval)
-    : 30;
-  const effectiveInterval = Math.max(5, intervalNum);
+  const intervalValue = slotInterval.trim() ? Number(slotInterval) : null;
+  const previewService =
+    services.find((service) => service.id === previewServiceId) ??
+    services[0] ??
+    null;
+  const previewInterval = previewService
+    ? resolveSlotInterval(
+        { slotIntervalMinutes: intervalValue },
+        previewService
+      )
+    : Math.max(5, intervalValue ?? 30);
+  const previewDuration = previewService?.durationMinutes ?? previewInterval;
 
   const fmtTime = useMemo(
     () =>
@@ -195,8 +235,8 @@ export function ScheduleEditor({
       const slots = generateSlotsForWindow({
         windowStart: fromZonedTime(`${dayKey}T${w.from}:00`, tz),
         windowEnd: fromZonedTime(`${dayKey}T${w.to}:00`, tz),
-        durationMinutes: effectiveInterval,
-        intervalMinutes: effectiveInterval,
+        durationMinutes: previewDuration,
+        intervalMinutes: previewInterval,
         busy,
         earliestStart,
       });
@@ -231,10 +271,24 @@ export function ScheduleEditor({
     }
     return days;
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [calMonth, schedule, exceptions, effectiveInterval, busy, tz, earliestStart]);
+  }, [calMonth, schedule, exceptions, previewDuration, previewInterval, busy, tz, earliestStart]);
 
   function updateDay(key: string, windows: Window[]) {
     setSchedule((prev) => ({ ...prev, [key]: windows }));
+  }
+
+  /** Rychlá šablona pro první nastavení: vyplní zvolené dny 9–17. */
+  function applyPreset(keys: string[]) {
+    setSchedule((prev) => {
+      const next = { ...prev };
+      for (const day of DAYS) {
+        next[day.key] = keys.includes(day.key)
+          ? [{ from: "09:00", to: "17:00" }]
+          : [];
+      }
+      return next;
+    });
+    toast.info("Šablona vložena – nezapomeňte ji uložit.");
   }
 
   function copyFirstDayToAll() {
@@ -267,7 +321,7 @@ export function ScheduleEditor({
     : ex
       ? "Výjimka – jiné hodiny"
       : weeklyWin.length > 0
-        ? "Otevřeno dle týdne"
+        ? "Otevřeno podle týdenního plánu"
         : "Zavřeno (bez plánu)";
 
   function ensureException(windows: Window[]) {
@@ -340,13 +394,16 @@ export function ScheduleEditor({
     setError(null);
     setSaved(false);
     const lead = Number(leadHours);
-    const interval = Number(slotInterval);
+    const interval = slotInterval.trim() ? Number(slotInterval) : undefined;
     if (!Number.isInteger(lead) || lead < 0 || lead > 720) {
       setError("Předstih musí být 0–720 hodin.");
       return;
     }
-    if (!Number.isInteger(interval) || interval < 5 || interval > 240) {
-      setError("Interval slotů musí být 5–240 minut.");
+    if (
+      interval !== undefined &&
+      (!Number.isInteger(interval) || interval < 5 || interval > 240)
+    ) {
+      setError("Rozestup startů musí být 5–240 minut, nebo prázdné.");
       return;
     }
     let max: number | undefined;
@@ -384,14 +441,48 @@ export function ScheduleEditor({
     if (!result.ok) {
       setError(
         result.error === "INVALID_INPUT"
-          ? "Zkontrolujte zadané údaje (čas ve formátu HH:MM, od dříve než do)."
+          ? "Zkontrolujte zadané údaje (čas ve formátu HH:MM a začátek dříve než konec)."
           : "Uložení se nezdařilo."
       );
       return;
     }
     setSaved(true);
+    baseline.current = snapshot;
     router.refresh();
   }
+
+  const upcomingDays = useMemo(() => {
+    const out: {
+      key: string;
+      label: string;
+      times: string[];
+    }[] = [];
+    const now = new Date();
+    for (let offset = 0; offset < 7; offset++) {
+      const date = new Date(
+        now.getFullYear(),
+        now.getMonth(),
+        now.getDate() + offset
+      );
+      const key = `${date.getFullYear()}-${pad2(date.getMonth() + 1)}-${pad2(date.getDate())}`;
+      out.push({
+        key,
+        label:
+          offset === 0
+            ? "Dnes"
+            : offset === 1
+              ? "Zítra"
+              : new Intl.DateTimeFormat("cs-CZ", {
+                  weekday: "short",
+                  day: "numeric",
+                  month: "numeric",
+                }).format(date),
+        times: daySlots(key),
+      });
+    }
+    return out;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [schedule, exceptions, previewDuration, previewInterval, busy, tz, earliestStart]);
 
   return (
     <div className="space-y-6">
@@ -446,7 +537,9 @@ export function ScheduleEditor({
                   />
                 </div>
                 <div className="space-y-2">
-                  <Label htmlFor="interval">Interval slotů (min)</Label>
+                  <Label htmlFor="interval">
+                    Jak často mohou termíny začínat (min)
+                  </Label>
                   <Input
                     id="interval"
                     type="number"
@@ -454,9 +547,11 @@ export function ScheduleEditor({
                     max={240}
                     value={slotInterval}
                     onChange={(e) => setSlotInterval(e.target.value)}
+                    placeholder="Podle délky služby"
                   />
                   <p className="text-xs text-muted-foreground">
-                    Prázdné intervaly u služeb přepisuje délka služby
+                    Nechte prázdné = starty podle délky služby. Každá služba si
+                    může nastavit vlastní rozestup.
                   </p>
                 </div>
               </div>
@@ -487,16 +582,91 @@ export function ScheduleEditor({
             days={monthDays}
             selectedDay={selectedDay}
             onSelectDay={setSelectedDay}
-            className="w-full sm:w-fit"
+            className="w-full xl:w-[560px]"
           />
           <p className="hidden items-center gap-4 px-2 text-xs text-muted-foreground sm:flex">
-            <span>Čísla = čas slotů</span>
+            <span>Čísla = volné starty u zvolené služby</span>
             <span className="flex items-center gap-1.5">
-              <span className="size-1.5 rounded-full bg-foreground/60" />
+              <span className="size-1.5 rounded-full bg-status-waiting" />
               výjimka
             </span>
             <span>přeškrtnuto = zavřeno</span>
           </p>
+
+          <Panel className="space-y-3 p-5">
+            <div className="space-y-2">
+              <div>
+                <p className="text-sm font-medium">Nejbližší volné termíny</p>
+                <p className="mt-0.5 text-xs text-muted-foreground">
+                  Jak to uvidí klienti. Počítá se i s rezervacemi a Google
+                  kalendářem.
+                </p>
+              </div>
+              {services.length > 0 ? (
+                <Select
+                  value={previewService?.id ?? ""}
+                  onValueChange={setPreviewServiceId}
+                >
+                  <SelectTrigger
+                    aria-label="Služba pro náhled"
+                    className="h-9 w-full"
+                  >
+                    <SelectValue placeholder="Vyberte službu" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {services.map((service) => (
+                      <SelectItem key={service.id} value={service.id}>
+                        {service.title} · {service.durationMinutes} min
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              ) : (
+                <p className="text-xs text-muted-foreground">
+                  Nejprve si vytvořte službu – náhled se pak ukáže pro ni.
+                </p>
+              )}
+              {previewService && (
+                <p className="text-xs text-muted-foreground">
+                  Starty po {previewInterval} min. Služba blokuje{" "}
+                  {previewDuration} min.
+                </p>
+              )}
+            </div>
+            <div className="divide-y divide-border">
+              {upcomingDays.map((day) => (
+                <div
+                  key={day.key}
+                  className="flex items-start justify-between gap-3 py-2"
+                >
+                  <span className="w-20 shrink-0 text-sm text-muted-foreground first-letter:uppercase">
+                    {day.label}
+                  </span>
+                  {day.times.length === 0 ? (
+                    <span className="text-xs text-muted-foreground">
+                      zavřeno
+                    </span>
+                  ) : (
+                    <span className="flex flex-wrap justify-end gap-1">
+                      {day.times.slice(0, 6).map((time) => (
+                        <span
+                          key={time}
+                          className="rounded-md bg-muted px-1.5 py-0.5 text-xs tabular-nums"
+                        >
+                          {time}
+                        </span>
+                      ))}
+                      {day.times.length > 6 && (
+                        <span className="self-center text-xs text-muted-foreground">
+                          +{day.times.length - 6}
+                        </span>
+                      )}
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </Panel>
         </div>
 
         <Panel
@@ -504,7 +674,7 @@ export function ScheduleEditor({
           className="space-y-4 p-5 animate-in fade-in-0 slide-in-from-bottom-1 duration-300 ease-brand motion-reduce:animate-none"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
-            <p className="font-display text-lg font-bold tracking-tight">
+            <p className="text-base font-semibold tracking-tight">
               {new Intl.DateTimeFormat("cs-CZ", {
                 weekday: "long",
                 day: "numeric",
@@ -524,12 +694,12 @@ export function ScheduleEditor({
             <>
               <div className="space-y-2">
                 <p className="text-xs font-medium text-muted-foreground">
-                  Sloty pro klienty
+                  Termíny pro klienty
                 </p>
                 {slots.length === 0 ? (
                   <p className="flex items-center gap-2 text-sm text-muted-foreground">
                     <CalendarOffIcon className="size-4" />
-                    Žádné sloty – tento den se nezobrazuje v rezervacích.
+                    Žádné termíny – v tento den se klientům nic nenabízí.
                   </p>
                 ) : (
                   <div className="flex flex-wrap gap-1.5">
@@ -549,7 +719,7 @@ export function ScheduleEditor({
                 {!ex && weeklyWin.length > 0 && (
                   <>
                     <p className="text-sm text-muted-foreground">
-                      Otevírá se dle týdenního opakování. Potřebuješ jinak?
+                      Otevírá se podle týdenního opakování. Potřebujete to jinak?
                     </p>
                     <div className="flex flex-wrap gap-2">
                       <Button
@@ -631,6 +801,7 @@ export function ScheduleEditor({
                         <div key={i} className="flex items-center gap-2">
                           <Input
                             type="time"
+                            aria-label={`Výjimka – otevřeno od (okno ${i + 1})`}
                             value={w.from}
                             onChange={(e) =>
                               updateExceptionWindow(i, { from: e.target.value })
@@ -640,6 +811,7 @@ export function ScheduleEditor({
                           <span className="text-sm text-muted-foreground">–</span>
                           <Input
                             type="time"
+                            aria-label={`Výjimka – otevřeno do (okno ${i + 1})`}
                             value={w.to}
                             onChange={(e) =>
                               updateExceptionWindow(i, { to: e.target.value })
@@ -695,18 +867,42 @@ export function ScheduleEditor({
       <div className="space-y-3">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <Label className="text-sm font-medium">Týdenní opakování</Label>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button
               type="button"
               variant="outline"
               size="sm"
-              onClick={copyFirstDayToAll}
+              onClick={() =>
+                applyPreset(["mon", "tue", "wed", "thu", "fri"])
+              }
             >
+              Šablona Po–Pá 9–17
+            </Button>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() =>
+                applyPreset(["mon", "tue", "wed", "thu", "fri", "sat"])
+              }
+            >
+              Po–So 9–17
+            </Button>
+            <Button type="button" variant="outline" size="sm" onClick={copyFirstDayToAll}>
               Zkopírovat první den na všechny
             </Button>
-            <Button type="button" variant="ghost" size="sm" onClick={clearAll}>
-              Vymazat vše
-            </Button>
+            <ConfirmDialog
+              trigger={
+                <Button type="button" variant="ghost" size="sm">
+                  Vymazat vše
+                </Button>
+              }
+              title="Vymazat celý týden?"
+              description="Smažou se hodiny u všech dnů. Změna se projeví až po uložení, takže ji můžete do té doby vrátit obnovením stránky."
+              confirmLabel="Vymazat"
+              tone="destructive"
+              onConfirm={clearAll}
+            />
           </div>
         </div>
         <div className="grid gap-3 sm:grid-cols-2">
@@ -718,6 +914,7 @@ export function ScheduleEditor({
                 <div className="flex items-center gap-3">
                   <Checkbox
                     id={`day-${d.key}`}
+                    aria-label={`${d.label} – otevřeno`}
                     checked={enabled}
                     onCheckedChange={(v) =>
                       updateDay(
@@ -736,6 +933,7 @@ export function ScheduleEditor({
                       <div key={i} className="flex items-center gap-2">
                         <Input
                           type="time"
+                          aria-label={`${d.label} – od`}
                           value={w.from}
                           onChange={(e) =>
                             updateDay(
@@ -750,6 +948,7 @@ export function ScheduleEditor({
                         <span className="text-sm text-muted-foreground">–</span>
                         <Input
                           type="time"
+                          aria-label={`${d.label} – do`}
                           value={w.to}
                           onChange={(e) =>
                             updateDay(
@@ -798,15 +997,33 @@ export function ScheduleEditor({
         </div>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
-      {saved && (
-        <p className="text-sm text-green-600">
-          Uloženo – dostupnost se promítne do rezervačního formuláře.
-        </p>
+      {(dirty || pending || saved || error) && (
+        <div className="sticky bottom-16 z-20 -mx-4 border-t border-border bg-background px-4 py-3 lg:bottom-0">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p
+              className={cn(
+                "text-sm",
+                error
+                  ? "text-destructive"
+                  : dirty || pending
+                    ? "text-muted-foreground"
+                    : "text-status-ok"
+              )}
+            >
+              {error
+                ? error
+                : pending
+                  ? "Ukládám…"
+                  : dirty
+                    ? "Neuložené změny"
+                    : "Uloženo – dostupnost se promítne do rezervačního formuláře."}
+            </p>
+            <Button type="button" onClick={onSave} disabled={pending || !dirty}>
+              {pending ? "Ukládám…" : "Uložit dostupnost"}
+            </Button>
+          </div>
+        </div>
       )}
-      <Button type="button" onClick={onSave} disabled={pending}>
-        {pending ? "Ukládám…" : "Uložit dostupnost"}
-      </Button>
     </div>
   );
 }

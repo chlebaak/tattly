@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { mapySuggestAddress, mapySuggestCity } from "@/lib/mapy";
+import { clientKeyFromRequest, rateLimit } from "@/lib/rate-limit";
 
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url);
@@ -8,6 +9,22 @@ export async function GET(request: Request) {
 
   if (q.length < 2) {
     return NextResponse.json({ items: [] });
+  }
+
+  // Veřejný endpoint – chráníme kvótu Mapy.cz před zneužitím.
+  const limit = rateLimit({
+    key: clientKeyFromRequest(request, "geocode"),
+    limit: 120,
+    windowMs: 10 * 60 * 1000,
+  });
+  if (!limit.ok) {
+    return NextResponse.json(
+      { items: [] },
+      {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+      }
+    );
   }
 
   try {

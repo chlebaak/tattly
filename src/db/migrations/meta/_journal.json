@@ -64,6 +64,76 @@
       "when": 1789656262457,
       "tag": "0008_simple_strong_guy",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1790853714986,
+      "tag": "0009_luxuriant_epoch",
+      "breakpoints": true
+    },
+    {
+      "idx": 10,
+      "version": "7",
+      "when": 1790968718237,
+      "tag": "0010_regular_blonde_phantom",
+      "breakpoints": true
+    },
+    {
+      "idx": 11,
+      "version": "7",
+      "when": 1790971941404,
+      "tag": "0011_dizzy_spitfire",
+      "breakpoints": true
+    },
+    {
+      "idx": 12,
+      "version": "7",
+      "when": 1790972005986,
+      "tag": "0012_fat_umar",
+      "breakpoints": true
+    },
+    {
+      "idx": 13,
+      "version": "7",
+      "when": 1790977197644,
+      "tag": "0013_high_red_skull",
+      "breakpoints": true
+    },
+    {
+      "idx": 14,
+      "version": "7",
+      "when": 1791413617721,
+      "tag": "0014_large_rogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 15,
+      "version": "7",
+      "when": 1791414044840,
+      "tag": "0015_backfill_assets_purge",
+      "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1791811704131,
+      "tag": "0016_misty_shadow_king",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1793494347199,
+      "tag": "0017_magical_tyger_tiger",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1793494356550,
+      "tag": "0018_backfill_payment_paid_at",
+      "breakpoints": true
     }
   ]
 }

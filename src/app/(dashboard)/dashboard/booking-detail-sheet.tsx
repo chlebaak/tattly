@@ -1,10 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useRouter } from "next/navigation";
-import { CheckIcon } from "lucide-react";
-import { toast } from "sonner";
-import { Button } from "@/components/ui/button";
+import { CheckIcon, ClockIcon, MailIcon, PhoneIcon, ShieldCheckIcon } from "lucide-react";
+import { cn } from "cn";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
   Sheet,
@@ -16,12 +14,19 @@ import {
 import { CopyButton } from "@/components/copy-button";
 import { StatusBadge } from "@/components/status-badge";
 import { formatCents } from "@/lib/utils";
-import { getBookingAssets, rejectBookingAction, resendInvoice } from "./actions";
-import { ApproveDialog } from "./approve-dialog";
-import { BookingManageActions } from "./booking-manage-actions";
-import { QrConfirmButton } from "./qr-confirm-button";
-import { RescheduleDialog } from "./reschedule-dialog";
-import { TIMELINE_STEPS, timelineDone, type BookingView } from "./booking-view";
+import { getBookingAssets } from "./actions";
+import { BookingActionsMenu, BookingPrimaryAction } from "./booking-actions";
+import { BookingNotes } from "./booking-notes";
+import { ClientMessageBox } from "./booking-message";
+import { ClientRequestTask } from "./attention-tasks";
+import { TIMELINE_STEPS, nextStepFor, timelineDone, type BookingView } from "./booking-view";
+
+const TONE_CALLOUT: Record<string, string> = {
+  attention: "bg-status-attention-soft text-status-attention",
+  waiting: "bg-status-waiting-soft text-status-waiting",
+  ok: "bg-status-ok-soft text-status-ok",
+  muted: "bg-muted text-muted-foreground",
+};
 
 function InfoRow({
   label,
@@ -55,9 +60,6 @@ export function BookingDetailSheet({
 }) {
   const [assetUrls, setAssetUrls] = useState<string[] | null>(null);
   const [assetsLoading, setAssetsLoading] = useState(false);
-  const [rejecting, setRejecting] = useState(false);
-  const [resending, setResending] = useState(false);
-  const router = useRouter();
 
   useEffect(() => {
     if (!open || booking.assetCount === 0 || assetUrls) return;
@@ -76,27 +78,13 @@ export function BookingDetailSheet({
     };
   }, [open, booking.id, booking.assetCount, assetUrls]);
 
+  const step = nextStepFor(booking);
   const done = timelineDone(booking.status);
+  const createdLabel = new Intl.DateTimeFormat("cs-CZ", {
+    dateStyle: "medium",
+  }).format(new Date(booking.createdAtIso));
 
-  async function reject() {
-    if (!window.confirm("Odmítnout poptávku? Klientovi přijde e-mail.")) return;
-    setRejecting(true);
-    const result = await rejectBookingAction({ bookingId: booking.id });
-    setRejecting(false);
-    if (!result.ok) {
-      toast.error(
-        result.error === "INVALID_STATE"
-          ? "Poptávka už není ke schválení."
-          : "Odmítnutí se nezdařilo."
-      );
-      return;
-    }
-    toast.success("Poptávka odmítnuta, klient obdržel e-mail.");
-    onOpenChange(false);
-    router.refresh();
-  }
-
-  const hasActions =
+  const hasFooter =
     booking.status === "pending_review" ||
     booking.status === "deposit_pending" ||
     booking.status === "confirmed" ||
@@ -108,23 +96,38 @@ export function BookingDetailSheet({
         side="right"
         className="flex w-full! flex-col gap-0 overflow-hidden p-0 sm:max-w-md!"
       >
-        <SheetHeader className="border-b bg-popover/95 px-5 py-4 backdrop-blur">
-          <div className="flex items-center justify-between gap-3">
-            <SheetTitle className="font-display text-xl">
-              {booking.clientName}
-            </SheetTitle>
+        <SheetHeader className="border-b border-border bg-card px-5 py-4 pr-12">
+          <div className="flex items-start justify-between gap-3">
+            <div className="min-w-0">
+              <SheetTitle className="text-lg font-semibold">
+                {booking.clientName}
+              </SheetTitle>
+              <p className="mt-0.5 text-xs text-muted-foreground">
+                {booking.serviceTitle ?? "Bez služby"} · {createdLabel}
+              </p>
+            </div>
             <StatusBadge status={booking.status} />
           </div>
-          <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1">
-            <span className="flex items-center gap-1.5">
-              <span className="text-muted-foreground">E-mail:</span>
-              <span>{booking.clientEmail}</span>
+          <SheetDescription className="flex flex-wrap items-center gap-x-3 gap-y-1.5 text-xs">
+            <span className="inline-flex items-center gap-1.5">
+              <MailIcon className="size-3.5 text-muted-foreground" />
+              <a
+                href={`mailto:${booking.clientEmail}`}
+                className="rounded transition-colors hover:text-foreground"
+              >
+                {booking.clientEmail}
+              </a>
               <CopyButton value={booking.clientEmail} label="E-mail" />
             </span>
             {booking.clientPhone && (
-              <span className="flex items-center gap-1.5">
-                <span className="text-muted-foreground">Telefon:</span>
-                <span>{booking.clientPhone}</span>
+              <span className="inline-flex items-center gap-1.5">
+                <PhoneIcon className="size-3.5 text-muted-foreground" />
+                <a
+                  href={`tel:${booking.clientPhone}`}
+                  className="rounded transition-colors hover:text-foreground"
+                >
+                  {booking.clientPhone}
+                </a>
                 <CopyButton value={booking.clientPhone} label="Telefon" />
               </span>
             )}
@@ -132,37 +135,53 @@ export function BookingDetailSheet({
         </SheetHeader>
 
         <div className="flex-1 space-y-6 overflow-y-auto overscroll-contain px-5 py-5">
+          <div
+            className={cn(
+              "rounded-[12px] px-3.5 py-3 text-sm",
+              TONE_CALLOUT[step.tone]
+            )}
+          >
+            <p className="font-semibold">{step.title}</p>
+            <p className="mt-0.5 text-xs opacity-90">{step.description}</p>
+          </div>
+
           {done > 0 && (
-            <div className="flex items-center gap-2">
-              {TIMELINE_STEPS.map((step, index) => {
-                const stepDone = index < done;
-                return (
-                  <div key={step} className="flex flex-1 items-center gap-2">
+            <div className="grid grid-cols-4 gap-2" aria-label="Průběh rezervace">
+              {TIMELINE_STEPS.map((label, index) => (
+                <div key={label} className="space-y-1.5">
+                  <div className="flex items-center gap-1.5">
                     <span
-                      className={
-                        stepDone
-                          ? "flex size-5 shrink-0 items-center justify-center rounded-full bg-primary text-primary-foreground"
-                          : "flex size-5 shrink-0 items-center justify-center rounded-full border text-muted-foreground"
-                      }
+                      className={cn(
+                        "flex size-5 shrink-0 items-center justify-center rounded-full text-[10px] font-semibold",
+                        index < done
+                          ? "bg-primary text-primary-foreground"
+                          : "border border-border text-muted-foreground"
+                      )}
                     >
-                      {stepDone ? <CheckIcon className="size-3" /> : index + 1}
+                      {index < done ? <CheckIcon className="size-3" /> : index + 1}
                     </span>
-                    <span
-                      className={
-                        index === TIMELINE_STEPS.length - 1
-                          ? "hidden text-xs text-muted-foreground lg:block"
-                          : "flex-1 border-t border-dashed border-border"
-                      }
-                    />
+                    {index < TIMELINE_STEPS.length - 1 ? (
+                      <span className="h-px flex-1 border-t border-dashed border-border" />
+                    ) : null}
                   </div>
-                );
-              })}
+                  <span
+                    className={cn(
+                      "block text-[10px] leading-tight",
+                      index < done
+                        ? "font-medium text-foreground"
+                        : "text-muted-foreground"
+                    )}
+                  >
+                    {label}
+                  </span>
+                </div>
+              ))}
             </div>
           )}
 
           <div>
             <SectionLabel>Detaily</SectionLabel>
-            <div className="divide-y divide-foreground/6">
+            <div className="divide-y divide-border">
               <InfoRow label="Služba">{booking.serviceTitle ?? "—"}</InfoRow>
               <InfoRow label="Termín">
                 <span className="tabular-nums">
@@ -189,25 +208,20 @@ export function BookingDetailSheet({
                     {booking.depositAmount > 0
                       ? formatCents(booking.depositAmount)
                       : "bez zálohy"}
-                    {booking.paymentMethod === "qr"
-                      ? " · QR"
-                      : booking.paymentMethod === "stripe"
-                        ? " · karta"
-                        : ""}
+                    {booking.paymentMethod ? " · QR platba" : ""}
                   </span>
                 </InfoRow>
               )}
               {booking.invoiceNumber && (
                 <InfoRow label="Faktura">
-                  <span className="tabular-nums">
-                    {booking.invoiceNumber}
-                  </span>
+                  <span className="tabular-nums">{booking.invoiceNumber}</span>
                 </InfoRow>
               )}
               {booking.depositExpiresLabel &&
                 booking.status === "deposit_pending" && (
                   <InfoRow label="Zaplatit do">
-                    <span className="tabular-nums">
+                    <span className="inline-flex items-center gap-1.5 tabular-nums">
+                      <ClockIcon className="size-3.5 text-muted-foreground" />
                       {booking.depositExpiresLabel}
                     </span>
                   </InfoRow>
@@ -217,7 +231,7 @@ export function BookingDetailSheet({
 
           {booking.description && (
             <div>
-              <SectionLabel>Popis</SectionLabel>
+              <SectionLabel>Popis od klienta</SectionLabel>
               <p className="whitespace-pre-line text-sm">
                 {booking.description}
               </p>
@@ -227,7 +241,7 @@ export function BookingDetailSheet({
           {booking.customEntries.length > 0 && (
             <div>
               <SectionLabel>Dotazník</SectionLabel>
-              <div className="divide-y divide-foreground/6">
+              <div className="divide-y divide-border">
                 {booking.customEntries.map((entry) => (
                   <InfoRow key={entry.label} label={entry.label}>
                     {entry.value}
@@ -255,7 +269,13 @@ export function BookingDetailSheet({
               ) : (
                 <div className="flex flex-wrap gap-2">
                   {assetUrls.map((url) => (
-                    <a key={url} href={url} target="_blank" rel="noreferrer">
+                    <a
+                      key={url}
+                      href={url}
+                      target="_blank"
+                      rel="noreferrer"
+                      title="Otevřít v nové kartě"
+                    >
                       {/* eslint-disable-next-line @next/next/no-img-element */}
                       <img
                         src={url}
@@ -272,69 +292,34 @@ export function BookingDetailSheet({
               )}
             </div>
           )}
+
+          {booking.assetsPurgeLabel && (
+            <p className="flex items-start gap-2 text-xs text-muted-foreground">
+              <ShieldCheckIcon className="mt-0.5 size-3.5 shrink-0" />
+              <span>
+                Referenční fotky a odpovědi z dotazníku automaticky smažeme{" "}
+                {booking.assetsPurgeLabel}.
+              </span>
+            </p>
+          )}
+
+          {booking.openRequest && (
+            <ClientRequestTask booking={booking} />
+          )}
+
+          <BookingNotes bookingId={booking.id} initialNotes={booking.notes} />
+
+          <ClientMessageBox bookingId={booking.id} />
         </div>
 
-        {hasActions && (
-          <div className="border-t bg-popover/95 px-5 py-4 backdrop-blur">
-            <SectionLabel>Akce</SectionLabel>
-            <div className="flex flex-wrap gap-2">
-              {booking.status === "pending_review" && (
-                <>
-                  <ApproveDialog booking={booking} />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={rejecting}
-                    onClick={reject}
-                  >
-                    {rejecting ? "Odmítám…" : "Odmítnout"}
-                  </Button>
-                </>
-              )}
-              {booking.status === "deposit_pending" && (
-                <>
-                  {booking.qrAvailable && (
-                    <QrConfirmButton bookingId={booking.id} />
-                  )}
-                  <RescheduleDialog booking={booking} />
-                  <BookingManageActions
-                    bookingId={booking.id}
-                    status="deposit_pending"
-                  />
-                </>
-              )}
-              {booking.status === "confirmed" && (
-                <>
-                  <RescheduleDialog booking={booking} />
-                  <BookingManageActions
-                    bookingId={booking.id}
-                    status="confirmed"
-                  />
-                </>
-              )}
-              {booking.status === "completed" && booking.invoiceNumber && (
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={resending}
-                  onClick={async () => {
-                    setResending(true);
-                    const result = await resendInvoice({
-                      bookingId: booking.id,
-                    });
-                    setResending(false);
-                    if (!result.ok) {
-                      toast.error("Odeslání faktury se nezdařilo.");
-                      return;
-                    }
-                    toast.success("Faktura odeslána klientovi.");
-                  }}
-                >
-                  {resending ? "Posílám…" : "Poslat fakturu znovu"}
-                </Button>
-              )}
+        {hasFooter && (
+          <div className="flex items-center gap-2 border-t border-border bg-card px-5 py-3">
+            <BookingPrimaryAction booking={booking} size="default" />
+            <div className="ml-auto flex items-center gap-1.5">
+              <span className="hidden text-xs text-muted-foreground sm:inline">
+                Další akce
+              </span>
+              <BookingActionsMenu booking={booking} />
             </div>
           </div>
         )}

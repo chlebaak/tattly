@@ -12,6 +12,16 @@ export default async function ServicesPage() {
     .where(eq(services.profileId, profile.id))
     .orderBy(services.title);
 
+  const windows = Object.values(
+    profile.bookingRules?.weeklySchedule ?? {}
+  ).flat();
+  const maxWindowMinutes = windows.reduce((max, window) => {
+    const [fromH, fromM] = window.from.split(":").map(Number);
+    const [toH, toM] = window.to.split(":").map(Number);
+    const minutes = toH! * 60 + toM! - (fromH! * 60 + fromM!);
+    return Math.max(max, minutes);
+  }, 0);
+
   return (
     <div className="space-y-6">
       <div>
@@ -21,6 +31,8 @@ export default async function ServicesPage() {
         </p>
       </div>
       <ServicesManager
+        defaultSlotInterval={profile.bookingRules?.slotIntervalMinutes ?? null}
+        maxWindowMinutes={maxWindowMinutes}
         services={list.map((s) => ({
           id: s.id,
           title: s.title,

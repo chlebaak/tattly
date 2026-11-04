@@ -3,9 +3,12 @@
 import { z } from "zod";
 import { and, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 import { addMinutes } from "date-fns";
+import { formatInTimeZone } from "date-fns-tz";
 import { revalidatePath } from "next/cache";
 import { db } from "@/db";
 import {
+  bankConnections,
+  bankTransactions,
   bookingAssets,
   bookings,
   payments,
@@ -16,9 +19,16 @@ import {
 } from "@/db/schema";
 import { requireProfile } from "@/lib/session";
 import { canTransition } from "@/lib/bookings";
+import { assetsPurgeAfterFor } from "@/lib/booking-lifecycle";
+import { getDaySlots } from "@/lib/availability";
+import { resolveSlotInterval } from "@/lib/slots";
+import { logBookingEvent, variableSymbolForBooking } from "@/lib/booking-events";
+import {
+  confirmDepositPaid,
+  markDepositRefunded,
+} from "@/lib/booking-payments";
 import { onBookingConfirmed } from "@/lib/booking-flow";
 import { createPresignedRead } from "@/lib/r2";
-import { getStripe } from "@/lib/stripe";
 import { buildDepositQr } from "@/lib/payments";
 import {
   bookingCancelledEmailForClient,
@@ -26,13 +36,14 @@ import {
   bookingRescheduledEmailForClient,
   depositLinkEmailForClient,
   invoiceEmailForClient,
+  artistMessageEmailForClient,
   sendEmail,
 } from "@/lib/email";
 import { buildIcsAttachment } from "@/lib/calendar";
 import { buildQrDataUri, buildSpaydString } from "@/lib/qr";
 import {
   deleteCalendarEvent,
-  getAccessTokenForProfile,
+  googleAccessForProfile,
   updateCalendarEvent,
 } from "@/lib/google";
 import {
@@ -149,11 +160,9 @@ export async function rescheduleBooking(input: {
   }
 
   if (moved.status === "confirmed" && moved.googleEventId) {
-    if (profile.googleRefreshToken && profile.googleCalendarId) {
+    const accessToken = await googleAccessForProfile(profile);
+    if (accessToken && profile.googleCalendarId) {
       try {
-        const accessToken = await getAccessTokenForProfile(
-          profile.googleRefreshToken
-        );
         await updateCalendarEvent({
           accessToken,
           calendarId: profile.googleCalendarId,
@@ -240,10 +249,12 @@ export async function approveBookingAction(
 
   const start = new Date(parsed.data.startIso);
   const end = addMinutes(start, row.serviceDuration ?? 60);
-  const depositAmount =
+  const requestedDeposit =
     parsed.data.depositCzk !== undefined
       ? parsed.data.depositCzk * 100
       : profile.defaultDepositAmount;
+  // Bez bankovního účtu není kam zálohu poslat – rezervace se potvrdí rovnou.
+  const depositAmount = profile.bankAccount ? requestedDeposit : 0;
   const priceMinor =
     parsed.data.priceCzk !== undefined
       ? parsed.data.priceCzk * 100
@@ -314,16 +325,26 @@ export async function approveBookingAction(
       depositAmount: 0,
     });
 
+    await logBookingEvent({
+      bookingId: booking.id,
+      type: "approved",
+      actor: "artist",
+      meta: { depositAmount: 0 },
+    });
+    await logBookingEvent({
+      bookingId: booking.id,
+      type: "confirmed",
+      actor: "system",
+      meta: { withoutDeposit: true },
+    });
+
     revalidatePath("/dashboard");
     revalidatePath("/dashboard/calendar");
     return { ok: true };
   }
 
-  if (!profile.stripeAccountId && !profile.bankAccount) {
-    return { ok: false, error: "NEEDS_PAYMENT_SETUP" };
-  }
-
   const depositExpiresAt = addMinutes(new Date(), 24 * 60);
+  const variableSymbol = variableSymbolForBooking(booking.id);
 
   try {
     await db.transaction(async (tx) => {
@@ -362,6 +383,7 @@ export async function approveBookingAction(
           endTime: end,
           depositAmount,
           depositExpiresAt,
+          variableSymbol,
           priceMinor,
         })
         .where(eq(bookings.id, booking.id));
@@ -390,7 +412,7 @@ export async function approveBookingAction(
           iban: profile.bankAccount,
           amountMinor: depositAmount,
           currency: profile.currency,
-          bookingId: booking.id,
+          variableSymbol,
           artistName: profile.displayName,
         })
       : null;
@@ -401,15 +423,20 @@ export async function approveBookingAction(
       amountMinor: depositAmount,
       currency: profile.currency,
       payUrl: `${appUrl()}/pay/${booking.id}`,
+      statusUrl: booking.statusCode
+        ? `${appUrl()}/booking/status?code=${booking.statusCode}`
+        : null,
       expiresAt: depositExpiresAt,
       timezone: profile.timezone,
       qrDataUri: qr?.dataUri ?? null,
-      cardAvailable: Boolean(profile.stripeAccountId),
+      variableSymbol,
+      iban: profile.bankAccount,
     });
     await sendEmail({
       to: booking.clientEmail,
       subject: email.subject,
       html: email.html,
+      replyTo: profile.email,
     });
   } catch (error) {
     console.error("Deposit request failed", error);
@@ -428,6 +455,7 @@ export async function approveBookingAction(
           status: "pending_review",
           depositAmount: null,
           depositExpiresAt: null,
+          variableSymbol: null,
         })
         .where(
           and(
@@ -441,6 +469,19 @@ export async function approveBookingAction(
 
   await scheduleDepositExpiry(booking.id, depositExpiresAt);
 
+  await logBookingEvent({
+    bookingId: booking.id,
+    type: "approved",
+    actor: "artist",
+    meta: { depositAmount },
+  });
+  await logBookingEvent({
+    bookingId: booking.id,
+    type: "deposit_sent",
+    actor: "system",
+    meta: { depositAmount, variableSymbol },
+  });
+
   revalidatePath("/dashboard");
   return { ok: true };
 }
@@ -452,97 +493,16 @@ export async function confirmQrPayment(input: {
   const parsed = z.object({ bookingId: z.uuid() }).safeParse(input);
   if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
 
-  const [row] = await db
-    .select({
-      booking: bookings,
-      serviceTitle: services.title,
-      serviceDuration: services.durationMinutes,
-    })
-    .from(bookings)
-    .leftJoin(services, eq(bookings.serviceId, services.id))
-    .where(
-      and(
-        eq(bookings.id, parsed.data.bookingId),
-        eq(bookings.profileId, profile.id)
-      )
-    )
-    .limit(1);
-  const booking = row?.booking;
-  if (!row || !booking) return { ok: false, error: "NOT_FOUND" };
-  if (booking.status !== "deposit_pending") {
-    return { ok: false, error: "INVALID_STATE" };
-  }
-
-  let moved: {
-    startTime: Date | null;
-    endTime: Date | null;
-    priceMinor: number | null;
-    depositAmount: number | null;
-  };
-  try {
-    moved = await db.transaction(async (tx) => {
-      await tx.execute(
-        sql`SELECT pg_advisory_xact_lock(hashtextextended(${profile.id}::text, 0))`
-      );
-      const [locked] = await tx
-        .select()
-        .from(bookings)
-        .where(eq(bookings.id, booking.id))
-        .for("update")
-        .limit(1);
-      if (!locked || locked.status !== "deposit_pending") {
-        throw new Error("INVALID_STATE");
-      }
-      await tx
-        .update(bookings)
-        .set({ status: "confirmed" })
-        .where(eq(bookings.id, booking.id));
-      await tx
-        .update(payments)
-        .set({ method: "qr", status: "succeeded" })
-        .where(
-          and(
-            eq(payments.bookingId, booking.id),
-            eq(payments.status, "pending")
-          )
-        );
-      return {
-        startTime: locked.startTime,
-        endTime: locked.endTime,
-        priceMinor: locked.priceMinor,
-        depositAmount: locked.depositAmount,
-      };
-    });
-  } catch (error) {
-    if (error instanceof Error && error.message === "INVALID_STATE") {
-      return { ok: false, error: "INVALID_STATE" };
-    }
-    console.error("QR confirm failed", error);
-    return { ok: false, error: "UNKNOWN" };
-  }
-
-  if (!moved.startTime || !moved.endTime) {
-    return { ok: false, error: "INVALID_STATE" };
-  }
-
-  await onBookingConfirmed({
-    profile,
-    bookingId: booking.id,
-    clientName: booking.clientName,
-    clientEmail: booking.clientEmail,
-    clientPhone: booking.clientPhone,
-    description: booking.description,
-    startTime: moved.startTime,
-    endTime: moved.endTime,
-    serviceTitle: row.serviceTitle,
-    serviceDurationMinutes: row.serviceDuration,
-    priceMinor: moved.priceMinor,
-    depositAmount: moved.depositAmount,
+  const result = await confirmDepositPaid({
+    profileId: profile.id,
+    bookingId: parsed.data.bookingId,
+    method: "qr",
   });
-
-  revalidatePath("/dashboard");
-  revalidatePath("/dashboard/calendar");
-  return { ok: true };
+  if (result.ok) {
+    revalidatePath("/dashboard");
+    revalidatePath("/dashboard/calendar");
+  }
+  return result;
 }
 
 export async function getBookingAssets(input: {
@@ -600,7 +560,10 @@ export async function rejectBookingAction(
 
   await db
     .update(bookings)
-    .set({ status: "rejected" })
+    .set({
+      status: "rejected",
+      assetsPurgeAfter: assetsPurgeAfterFor("rejected", booking.createdAt),
+    })
     .where(eq(bookings.id, booking.id));
 
   const email = bookingRejectedEmailForClient({
@@ -611,6 +574,7 @@ export async function rejectBookingAction(
     to: booking.clientEmail,
     subject: email.subject,
     html: email.html,
+    replyTo: profile.email,
   });
 
   revalidatePath("/dashboard");
@@ -641,12 +605,15 @@ export async function cancelBooking(input: {
 
   const updated = await db
     .update(bookings)
-    .set({ status: "cancelled" })
+    .set({
+      status: "cancelled",
+      assetsPurgeAfter: assetsPurgeAfterFor("cancelled", booking.createdAt),
+    })
     .where(and(eq(bookings.id, booking.id), eq(bookings.status, booking.status)))
     .returning({ id: bookings.id });
   if (!updated.length) return { ok: false, error: "INVALID_STATE" };
 
-  let refundKind: "card" | "bank" | "none" = "none";
+  let refundKind: "bank" | "none" = "none";
   if (parsed.data.refund) {
     const [payment] = await db
       .select()
@@ -658,36 +625,29 @@ export async function cancelBooking(input: {
         )
       )
       .limit(1);
-    if (payment?.method === "qr") {
+    if (payment) {
       refundKind = "bank";
-    } else if (payment?.stripePaymentIntentId) {
-      try {
-        await getStripe().refunds.create({
-          payment_intent: payment.stripePaymentIntentId,
-        });
-        refundKind = "card";
-      } catch (error) {
-        console.error("Refund failed", error);
-        await db
-          .update(bookings)
-          .set({ status: booking.status })
-          .where(eq(bookings.id, booking.id));
-        return { ok: false, error: "REFUND_FAILED" };
-      }
+      await logBookingEvent({
+        bookingId: booking.id,
+        type: "refund_requested",
+        actor: "artist",
+        meta: { amount: payment.amount, currency: payment.currency },
+      });
     }
   }
 
-  if (
-    booking.googleEventId &&
-    profile.googleRefreshToken &&
-    profile.googleCalendarId
-  ) {
+  await logBookingEvent({
+    bookingId: booking.id,
+    type: "cancelled",
+    actor: "artist",
+    meta: { refund: refundKind },
+  });
+
+  const googleToken = await googleAccessForProfile(profile);
+  if (booking.googleEventId && googleToken && profile.googleCalendarId) {
     try {
-      const accessToken = await getAccessTokenForProfile(
-        profile.googleRefreshToken
-      );
       await deleteCalendarEvent({
-        accessToken,
+        accessToken: googleToken,
         calendarId: profile.googleCalendarId,
         eventId: booking.googleEventId,
       });
@@ -715,11 +675,15 @@ export async function cancelBooking(input: {
       timezone: profile.timezone,
       refundKind,
       hadDeposit: (booking.depositAmount ?? 0) > 0,
+      statusUrl: booking.statusCode
+        ? `${appUrl()}/booking/status?code=${booking.statusCode}`
+        : null,
     });
     await sendEmail({
       to: booking.clientEmail,
       subject: email.subject,
       html: email.html,
+      replyTo: profile.email,
     });
   }
 
@@ -752,7 +716,10 @@ export async function completeBooking(input: {
 
   const updated = await db
     .update(bookings)
-    .set({ status: "completed" })
+    .set({
+      status: "completed",
+      assetsPurgeAfter: assetsPurgeAfterFor("completed", booking.createdAt),
+    })
     .where(and(eq(bookings.id, booking.id), eq(bookings.status, booking.status)))
     .returning({ id: bookings.id });
   if (!updated.length) return { ok: false, error: "INVALID_STATE" };
@@ -899,5 +866,323 @@ export async function resendInvoice(input: {
     serviceTitle: row.serviceTitle,
     invoiceNumber: booking.invoiceNumber,
   });
+  return { ok: true };
+}
+
+const suggestedSlotsSchema = z.object({
+  bookingId: z.uuid(),
+  dayKey: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+/**
+ * Volné termíny pro daný den – používané v dialogu pro schválení a přesun.
+ * Ignoruje minimální lhůtu (schvaluje tatér) a vlastní termín rezervace.
+ */
+export async function getSuggestedSlots(input: unknown): Promise<
+  | { ok: true; slots: { iso: string; label: string }[] }
+  | { ok: false; error: string }
+> {
+  const profile = await requireProfile();
+  const parsed = suggestedSlotsSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const [row] = await db
+    .select({
+      booking: bookings,
+      serviceDuration: services.durationMinutes,
+      serviceSlotInterval: services.slotIntervalMinutes,
+    })
+    .from(bookings)
+    .leftJoin(services, eq(bookings.serviceId, services.id))
+    .where(
+      and(
+        eq(bookings.id, parsed.data.bookingId),
+        eq(bookings.profileId, profile.id)
+      )
+    )
+    .limit(1);
+  if (!row) return { ok: false, error: "NOT_FOUND" };
+
+  const durationMinutes =
+    row.booking.startTime && row.booking.endTime
+      ? Math.max(
+          15,
+          Math.round(
+            (row.booking.endTime.getTime() - row.booking.startTime.getTime()) /
+              60000
+          )
+        )
+      : (row.serviceDuration ?? 60);
+
+  const tz = profile.timezone || "Europe/Prague";
+  const slots = await getDaySlots({
+    profileId: profile.id,
+    dayKey: parsed.data.dayKey,
+    timezone: tz,
+    durationMinutes,
+    intervalMinutes: resolveSlotInterval(profile.bookingRules, {
+      durationMinutes: row.serviceDuration ?? durationMinutes,
+      slotIntervalMinutes: row.serviceSlotInterval,
+    }),
+    excludeBookingId: parsed.data.bookingId,
+  });
+
+  return {
+    ok: true,
+    slots: slots.map((slot) => ({
+      iso: slot.start.toISOString(),
+      label: formatInTimeZone(slot.start, tz, "HH:mm"),
+    })),
+  };
+}
+
+const notesSchema = z.object({
+  bookingId: z.uuid(),
+  notes: z.string().max(4000),
+});
+
+export async function saveBookingNotes(
+  input: unknown
+): Promise<{ ok: boolean; error?: string }> {
+  const profile = await requireProfile();
+  const parsed = notesSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const updated = await db
+    .update(bookings)
+    .set({ notes: parsed.data.notes.trim() || null })
+    .where(
+      and(
+        eq(bookings.id, parsed.data.bookingId),
+        eq(bookings.profileId, profile.id)
+      )
+    )
+    .returning({ id: bookings.id });
+  if (updated.length === 0) return { ok: false, error: "NOT_FOUND" };
+
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+const approveManySchema = z.object({
+  bookingIds: z.array(z.uuid()).min(1).max(50),
+});
+
+/**
+ * Hromadné schválení: použije požadovaný termín klienta a výchozí zálohu
+ * ze služby. Rezervace bez navrženého termínu se přeskočí.
+ */
+export async function approveManyBookingsAction(input: unknown): Promise<{
+  ok: boolean;
+  approved: number;
+  skipped: number;
+  error?: string;
+}> {
+  const profile = await requireProfile();
+  const parsed = approveManySchema.safeParse(input);
+  if (!parsed.success) {
+    return { ok: false, approved: 0, skipped: 0, error: "INVALID_INPUT" };
+  }
+
+  let approved = 0;
+  let skipped = 0;
+  let lastError: string | undefined;
+
+  for (const bookingId of parsed.data.bookingIds) {
+    const [row] = await db
+      .select({
+        booking: bookings,
+        serviceDepositMinor: services.depositMinor,
+      })
+      .from(bookings)
+      .leftJoin(services, eq(bookings.serviceId, services.id))
+      .where(
+        and(eq(bookings.id, bookingId), eq(bookings.profileId, profile.id))
+      )
+      .limit(1);
+
+    if (
+      !row ||
+      row.booking.status !== "pending_review" ||
+      !row.booking.startTime
+    ) {
+      skipped += 1;
+      continue;
+    }
+
+    const result = await approveBookingAction({
+      bookingId,
+      startIso: row.booking.startTime.toISOString(),
+      depositCzk:
+        row.serviceDepositMinor !== null
+          ? Math.round(row.serviceDepositMinor / 100)
+          : undefined,
+    });
+    if (result.ok) {
+      approved += 1;
+    } else {
+      skipped += 1;
+      lastError = result.error;
+    }
+  }
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/calendar");
+  return { ok: approved > 0, approved, skipped, error: lastError };
+}
+
+/* ------------------------------ refundace (ručně) ------------------------------ */
+
+export async function markRefunded(input: {
+  bookingId: string;
+  note?: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const profile = await requireProfile();
+  const parsed = z
+    .object({ bookingId: z.uuid(), note: z.string().max(300).optional() })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const result = await markDepositRefunded({
+    profileId: profile.id,
+    bookingId: parsed.data.bookingId,
+    note: parsed.data.note,
+  });
+  if (result.ok) revalidatePath("/dashboard");
+  return result;
+}
+
+/* ----------------------------- komunikace s klientem ---------------------------- */
+
+export async function sendClientMessage(input: {
+  bookingId: string;
+  message: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const profile = await requireProfile();
+  const parsed = z
+    .object({ bookingId: z.uuid(), message: z.string().min(2).max(300) })
+    .safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const [row] = await db
+    .select({ booking: bookings, serviceTitle: services.title })
+    .from(bookings)
+    .leftJoin(services, eq(bookings.serviceId, services.id))
+    .where(
+      and(
+        eq(bookings.id, parsed.data.bookingId),
+        eq(bookings.profileId, profile.id)
+      )
+    )
+    .limit(1);
+  const booking = row?.booking;
+  if (!row || !booking) return { ok: false, error: "NOT_FOUND" };
+  if (!booking.startTime) return { ok: false, error: "INVALID_STATE" };
+
+  const message = parsed.data.message.trim();
+  await logBookingEvent({
+    bookingId: booking.id,
+    type: "message",
+    actor: "artist",
+    message,
+  });
+
+  const email = artistMessageEmailForClient({
+    clientName: booking.clientName,
+    artistName: profile.displayName,
+    serviceTitle: row.serviceTitle ?? "Termín",
+    when: booking.startTime,
+    timezone: profile.timezone,
+    message,
+    statusUrl: booking.statusCode
+      ? `${appUrl()}/booking/status?code=${booking.statusCode}`
+      : null,
+  });
+  await sendEmail({
+    to: booking.clientEmail,
+    subject: email.subject,
+    html: email.html,
+    replyTo: profile.email,
+  });
+
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+export async function resolveClientRequest(input: {
+  bookingId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const profile = await requireProfile();
+  const parsed = z.object({ bookingId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const updated = await db
+    .update(bookings)
+    .set({ openRequest: null })
+    .where(
+      and(
+        eq(bookings.id, parsed.data.bookingId),
+        eq(bookings.profileId, profile.id)
+      )
+    )
+    .returning({ id: bookings.id });
+  if (!updated.length) return { ok: false, error: "NOT_FOUND" };
+
+  await logBookingEvent({
+    bookingId: parsed.data.bookingId,
+    type: "request_resolved",
+    actor: "artist",
+  });
+
+  revalidatePath("/dashboard");
+  return { ok: true };
+}
+
+/* --------------------------- bankovní platby (Fio) --------------------------- */
+
+const assignBankSchema = z.object({
+  transactionId: z.uuid(),
+  bookingId: z.uuid(),
+});
+
+/** Ruční přiřazení nespárované platby k rezervaci. */
+export async function assignBankTransaction(
+  input: unknown
+): Promise<{ ok: boolean; error?: string }> {
+  const profile = await requireProfile();
+  const parsed = assignBankSchema.safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const [row] = await db
+    .select({
+      transaction: bankTransactions,
+      connectionProfileId: bankConnections.profileId,
+    })
+    .from(bankTransactions)
+    .innerJoin(
+      bankConnections,
+      eq(bankTransactions.connectionId, bankConnections.id)
+    )
+    .where(eq(bankTransactions.id, parsed.data.transactionId))
+    .limit(1);
+  if (!row || row.connectionProfileId !== profile.id) {
+    return { ok: false, error: "NOT_FOUND" };
+  }
+  if (row.transaction.bookingId) return { ok: false, error: "ALREADY_MATCHED" };
+
+  const result = await confirmDepositPaid({
+    profileId: profile.id,
+    bookingId: parsed.data.bookingId,
+    method: "bank",
+  });
+  if (!result.ok) return result;
+
+  await db
+    .update(bankTransactions)
+    .set({ bookingId: parsed.data.bookingId, matchedAt: new Date() })
+    .where(eq(bankTransactions.id, row.transaction.id));
+
+  revalidatePath("/dashboard");
+  revalidatePath("/dashboard/calendar");
   return { ok: true };
 }

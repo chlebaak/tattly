@@ -3,7 +3,7 @@ import { db } from "@/db";
 import { bookings, type Profile } from "@/db/schema";
 import { buildIcsAttachment } from "./calendar";
 import { bookingConfirmedEmailForClient, sendEmail } from "./email";
-import { createCalendarEvent, getAccessTokenForProfile } from "./google";
+import { createCalendarEvent, googleAccessForProfile } from "./google";
 import { scheduleBookingReminder } from "@/inngest/client";
 import { appUrl } from "./env";
 
@@ -30,11 +30,9 @@ export async function onBookingConfirmed(params: {
         }`.replace(/, $/, "")
       : null;
 
-  if (profile.googleRefreshToken && profile.googleCalendarId) {
+  const accessToken = await googleAccessForProfile(profile);
+  if (accessToken && profile.googleCalendarId) {
     try {
-      const accessToken = await getAccessTokenForProfile(
-        profile.googleRefreshToken
-      );
       const eventId = await createCalendarEvent({
         accessToken,
         calendarId: profile.googleCalendarId,

@@ -12,12 +12,7 @@ import {
   type WeeklySchedule,
 } from "@/db/schema";
 import { requireProfile } from "@/lib/session";
-import { getBusyIntervals } from "@/lib/availability";
-import {
-  getAccessTokenForProfile,
-  queryFreebusy,
-  type BusyInterval,
-} from "@/lib/google";
+import { getBusyWithGoogle } from "@/lib/availability";
 
 const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 const DAY_KEYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
@@ -56,7 +51,7 @@ const exceptionsSchema = z
 const rulesSchema = z.object({
   timezone: z.string().min(2).max(64),
   minLeadTimeHours: z.coerce.number().int().min(0).max(720),
-  slotIntervalMinutes: z.coerce.number().int().min(5).max(240),
+  slotIntervalMinutes: z.coerce.number().int().min(5).max(240).optional(),
   maxBookingsPerDay: z.coerce.number().int().min(1).max(50).optional(),
   weeklySchedule: scheduleSchema.optional(),
   exceptions: exceptionsSchema.optional(),
@@ -86,6 +81,7 @@ export async function saveBookingRules(
   revalidatePath("/dashboard/settings/availability");
   revalidatePath("/dashboard/settings");
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/calendar");
   return { ok: true };
 }
 
@@ -117,6 +113,7 @@ export async function blockDay(input: {
     .where(eq(profiles.id, profile.id));
 
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/calendar");
   revalidatePath("/dashboard/settings/availability");
   return { ok: true };
 }
@@ -143,6 +140,7 @@ export async function unblockDay(input: {
     .where(eq(profiles.id, profile.id));
 
   revalidatePath("/dashboard");
+  revalidatePath("/dashboard/calendar");
   revalidatePath("/dashboard/settings/availability");
   return { ok: true };
 }
@@ -159,26 +157,10 @@ export async function getBusyForMonth(input: {
 
   const from = new Date(parsed.data.fromIso);
   const to = new Date(parsed.data.toIso);
-  const dbBusy = await getBusyIntervals(profile.id, from, to);
-  let googleBusy: BusyInterval[] = [];
-  if (profile.googleRefreshToken && profile.googleCalendarId) {
-    try {
-      const accessToken = await getAccessTokenForProfile(
-        profile.googleRefreshToken
-      );
-      googleBusy = await queryFreebusy({
-        accessToken,
-        calendarId: profile.googleCalendarId,
-        timeMin: from,
-        timeMax: to,
-      });
-    } catch (error) {
-      console.error("Google freebusy failed", error);
-    }
-  }
+  const busy = await getBusyWithGoogle(profile, from, to);
   return {
     ok: true,
-    busy: [...dbBusy, ...googleBusy].map((b) => ({
+    busy: busy.map((b) => ({
       startIso: b.start.toISOString(),
       endIso: b.end.toISOString(),
     })),

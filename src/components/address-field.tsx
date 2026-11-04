@@ -38,7 +38,7 @@ export function AddressField({
   id,
   value,
   onChange,
-  placeholder = "Začni psát adresu…",
+  placeholder = "Začněte psát adresu…",
   disabled = false,
 }: Props) {
   const [query, setQuery] = useState(value);

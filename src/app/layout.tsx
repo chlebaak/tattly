@@ -1,28 +1,42 @@
 import type { Metadata, Viewport } from "next";
-import { Fraunces, Space_Grotesk } from "next/font/google";
+import { Geist } from "next/font/google";
+import { appUrl } from "@/lib/env";
 import { Toaster } from "@/components/ui/sonner";
 import "./globals.css";
 
-const fraunces = Fraunces({
-  variable: "--font-fraunces",
+const geist = Geist({
+  variable: "--font-geist",
   subsets: ["latin", "latin-ext"],
-  style: ["normal", "italic"],
-});
-
-const spaceGrotesk = Space_Grotesk({
-  variable: "--font-grotesk",
-  subsets: ["latin", "latin-ext"],
-  weight: ["300", "400", "500", "600", "700"],
+  display: "swap",
 });
 
 export const metadata: Metadata = {
-  title: "Tattly.eu – rezervace se screeningem a zálohou",
+  metadataBase: new URL(appUrl()),
+  title: {
+    default: "Tattly.eu – rezervace se screeningem a zálohou",
+    template: "%s | Tattly.eu",
+  },
   description:
-    "Rezervační systém pro tatéry, fyzioterapeuty a trenéry: screening poptávek, zálohy přes Stripe a synchronizace s Google Kalendářem.",
+    "Rezervační systém pro tatéry, fyzioterapeuty a trenéry: screening poptávek, zálohy QR platbou a synchronizace s Google Kalendářem.",
+  openGraph: {
+    type: "website",
+    siteName: "Tattly.eu",
+    locale: "cs_CZ",
+    url: "/",
+    title: "Tattly.eu – rezervace se screeningem a zálohou",
+    description:
+      "Poptávky se screeningem, zálohy QR platbou a kalendář, který se sám hlídá.",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Tattly.eu – rezervace se screeningem a zálohou",
+    description:
+      "Poptávky se screeningem, zálohy QR platbou a kalendář, který se sám hlídá.",
+  },
 };
 
 export const viewport: Viewport = {
-  themeColor: "#f4f3ea",
+  themeColor: "#f6f5f1",
   colorScheme: "light",
 };
 
@@ -32,10 +46,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="cs">
-      <body
-        className={`${fraunces.variable} ${spaceGrotesk.variable} antialiased`}
-      >
+    <html lang="cs" className={geist.variable}>
+      <body className="antialiased">
         {children}
         <Toaster />
       </body>

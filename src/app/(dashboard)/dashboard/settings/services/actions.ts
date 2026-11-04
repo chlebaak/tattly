@@ -4,7 +4,7 @@ import { z } from "zod";
 import { revalidatePath } from "next/cache";
 import { and, eq } from "drizzle-orm";
 import { db } from "@/db";
-import { services } from "@/db/schema";
+import { bookings, services } from "@/db/schema";
 import { requireProfile } from "@/lib/session";
 
 const customFieldSchema = z.object({
@@ -72,8 +72,7 @@ export async function saveService(input: unknown): Promise<SaveServiceResult> {
 export async function setServiceActive(input: {
   serviceId: string;
   isActive: boolean;
-}): Promise<{ ok: boolean; error?: string }> {
-  const profile = await requireProfile();
+}): Promise<{ ok: boolean; error?: string }> {  const profile = await requireProfile();
   const parsed = z
     .object({ serviceId: z.uuid(), isActive: z.boolean() })
     .safeParse(input);
@@ -94,6 +93,78 @@ export async function setServiceActive(input: {
   await db
     .update(services)
     .set({ isActive: parsed.data.isActive })
+    .where(eq(services.id, parsed.data.serviceId));
+  revalidatePath("/dashboard/settings/services");
+  revalidatePath("/dashboard/settings");
+  return { ok: true };
+}
+
+export async function duplicateService(input: {
+  serviceId: string;
+}): Promise<{ ok: boolean; error?: string; id?: string }> {
+  const profile = await requireProfile();
+  const parsed = z.object({ serviceId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const [existing] = await db
+    .select()
+    .from(services)
+    .where(
+      and(
+        eq(services.id, parsed.data.serviceId),
+        eq(services.profileId, profile.id)
+      )
+    )
+    .limit(1);
+  if (!existing) return { ok: false, error: "NOT_FOUND" };
+
+  const [created] = await db
+    .insert(services)
+    .values({
+      profileId: profile.id,
+      title: `${existing.title} (kopie)`.slice(0, 120),
+      durationMinutes: existing.durationMinutes,
+      slotIntervalMinutes: existing.slotIntervalMinutes,
+      priceMinor: existing.priceMinor,
+      depositMinor: existing.depositMinor,
+      requiresDeposit: existing.requiresDeposit,
+      customFormFields: existing.customFormFields,
+      isActive: false,
+    })
+    .returning({ id: services.id });
+
+  revalidatePath("/dashboard/settings/services");
+  return { ok: true, id: created.id };
+}
+
+export async function deleteService(input: {
+  serviceId: string;
+}): Promise<{ ok: boolean; error?: string }> {
+  const profile = await requireProfile();
+  const parsed = z.object({ serviceId: z.uuid() }).safeParse(input);
+  if (!parsed.success) return { ok: false, error: "INVALID_INPUT" };
+
+  const [existing] = await db
+    .select({ id: services.id })
+    .from(services)
+    .where(
+      and(
+        eq(services.id, parsed.data.serviceId),
+        eq(services.profileId, profile.id)
+      )
+    )
+    .limit(1);
+  if (!existing) return { ok: false, error: "NOT_FOUND" };
+
+  const [used] = await db
+    .select({ id: bookings.id })
+    .from(bookings)
+    .where(eq(bookings.serviceId, parsed.data.serviceId))
+    .limit(1);
+  if (used) return { ok: false, error: "HAS_BOOKINGS" };
+
+  await db
+    .delete(services)
     .where(eq(services.id, parsed.data.serviceId));
   revalidatePath("/dashboard/settings/services");
   revalidatePath("/dashboard/settings");

@@ -1,11 +1,10 @@
-import { desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, gt, inArray, isNotNull, or } from "drizzle-orm";
 import { formatInTimeZone } from "date-fns-tz";
 import { db } from "@/db";
 import { bookingAssets, bookings, payments, services } from "@/db/schema";
 import type { Profile } from "@/db/schema";
 import type { BookingStatus } from "@/lib/bookings";
-import type { CalendarChip } from "@/components/month-calendar";
-import type { BookingView } from "./booking-view";
+import type { BookingPayment, BookingView } from "./booking-view";
 
 export const STATUS_WEIGHT: Record<BookingStatus, number> = {
   pending_review: 0,
@@ -17,12 +16,41 @@ export const STATUS_WEIGHT: Record<BookingStatus, number> = {
   rejected: 6,
 };
 
-export async function getDashboardData(profile: Profile): Promise<{
+/** Přehled nenačítá celou historii – starší rezervace zůstávají v kalendáři. */
+const DASHBOARD_LIMIT = 600;
+const DASHBOARD_WINDOW_DAYS = 365;
+
+export async function getDashboardData(
+  profile: Profile,
+  options?: { full?: boolean }
+): Promise<{
   bookingsView: BookingView[];
-  chipsByDay: Record<string, CalendarChip[]>;
   blockedDays: string[];
+  /** True = v přehledu je zkrácená historie (starší kusy jsou v kalendáři). */
+  listTruncated: boolean;
 }> {
   const tz = profile.timezone || "Europe/Prague";
+
+  // V dashboardu nikdy nezahazujeme nic, co vyžaduje pozornost (poptávky,
+  // nezaplacené zálohy, požadavky klientů, vratky) – ořezáváme jen starou
+  // vyřízenou historii, a i tu nejdřív po roce provozu.
+  const windowStart = new Date(
+    Date.now() - DASHBOARD_WINDOW_DAYS * 24 * 60 * 60 * 1000
+  );
+  const where = options?.full
+    ? eq(bookings.profileId, profile.id)
+    : and(
+        eq(bookings.profileId, profile.id),
+        or(
+          gt(bookings.createdAt, windowStart),
+          inArray(bookings.status, ["pending_review", "deposit_pending"]),
+          isNotNull(bookings.openRequest),
+          and(
+            eq(bookings.status, "cancelled"),
+            isNotNull(bookings.clientPaidAt)
+          )
+        )
+      );
 
   const rows = await db
     .select({
@@ -31,12 +59,16 @@ export async function getDashboardData(profile: Profile): Promise<{
       customFormFields: services.customFormFields,
       servicePriceMinor: services.priceMinor,
       serviceDepositMinor: services.depositMinor,
+      serviceDurationMinutes: services.durationMinutes,
     })
     .from(bookings)
     .leftJoin(services, eq(bookings.serviceId, services.id))
-    .where(eq(bookings.profileId, profile.id))
-    .orderBy(desc(bookings.createdAt));
-  const sorted = [...rows].sort(
+    .where(where)
+    .orderBy(desc(bookings.createdAt))
+    .limit(options?.full ? 5000 : DASHBOARD_LIMIT + 1);
+  const listTruncated = !options?.full && rows.length > DASHBOARD_LIMIT;
+  const bounded = listTruncated ? rows.slice(0, DASHBOARD_LIMIT) : rows;
+  const sorted = [...bounded].sort(
     (a, b) => STATUS_WEIGHT[a.booking.status] - STATUS_WEIGHT[b.booking.status]
   );
 
@@ -60,27 +92,62 @@ export async function getDashboardData(profile: Profile): Promise<{
         .select({
           bookingId: payments.bookingId,
           method: payments.method,
+          status: payments.status,
+          amount: payments.amount,
+          currency: payments.currency,
+          refundedAt: payments.refundedAt,
+          createdAt: payments.createdAt,
         })
         .from(payments)
         .where(inArray(payments.bookingId, bookingIds))
     : [];
-  const paymentMethodByBooking = new Map<string, "stripe" | "qr" | null>();
+  const paymentMethodByBooking = new Map<string, "stripe" | "qr" | "bank" | null>();
+  const paymentByBooking = new Map<string, BookingPayment>();
   for (const p of paymentRows) {
     if (!paymentMethodByBooking.has(p.bookingId)) {
       paymentMethodByBooking.set(p.bookingId, p.method);
+    }
+    // Nejdůležitější je úspěšná platba, jinak ta poslední.
+    const existing = paymentByBooking.get(p.bookingId);
+    const isBetter =
+      !existing ||
+      (p.status === "succeeded" && existing.status !== "succeeded") ||
+      (p.status === "refunded" && existing.status === "pending");
+    if (isBetter) {
+      paymentByBooking.set(p.bookingId, {
+        status: p.status,
+        amount: p.amount,
+        currency: p.currency,
+        refundedAtIso: p.refundedAt ? p.refundedAt.toISOString() : null,
+      });
     }
   }
 
   const dayKey = (d: Date) => formatInTimeZone(d, tz, "yyyy-MM-dd");
 
   const bookingsView: BookingView[] = sorted.map(
-    ({ booking, serviceTitle, customFormFields, servicePriceMinor, serviceDepositMinor }) => ({
+    ({
+      booking,
+      serviceTitle,
+      customFormFields,
+      servicePriceMinor,
+      serviceDepositMinor,
+      serviceDurationMinutes,
+    }) => ({
       id: booking.id,
       status: booking.status,
       clientName: booking.clientName,
       clientEmail: booking.clientEmail,
       clientPhone: booking.clientPhone,
       description: booking.description,
+      notes: booking.notes,
+      openRequest: booking.openRequest ?? null,
+      clientPaidAtIso: booking.clientPaidAt
+        ? booking.clientPaidAt.toISOString()
+        : null,
+      variableSymbol: booking.variableSymbol,
+      clientIban: booking.clientIban,
+      payment: paymentByBooking.get(booking.id) ?? null,
       serviceTitle,
       customEntries: Object.entries(booking.formData).map(([key, value]) => ({
         label: customFormFields?.find((f) => f.id === key)?.label ?? key,
@@ -95,6 +162,9 @@ export async function getDashboardData(profile: Profile): Promise<{
             timeZone: tz,
           }).format(booking.startTime)
         : null,
+      startTimeLabel: booking.startTime
+        ? formatInTimeZone(booking.startTime, tz, "HH:mm")
+        : null,
       proposedStartValue: booking.startTime
         ? formatInTimeZone(booking.startTime, tz, "yyyy-MM-dd'T'HH:mm")
         : null,
@@ -108,6 +178,7 @@ export async function getDashboardData(profile: Profile): Promise<{
       priceMinor: booking.priceMinor,
       servicePriceMinor,
       serviceDepositMinor,
+      serviceDurationMinutes,
       invoiceNumber: booking.invoiceNumber,
       depositExpiresLabel: booking.depositExpiresAt
         ? new Intl.DateTimeFormat("cs-CZ", {
@@ -119,35 +190,22 @@ export async function getDashboardData(profile: Profile): Promise<{
       reminderSent: booking.reminderSentAt !== null,
       googleLinked: booking.googleEventId !== null,
       assetCount: assetCountByBooking.get(booking.id) ?? 0,
+      assetsPurgeLabel: booking.assetsPurgeAfter
+        ? new Intl.DateTimeFormat("cs-CZ", {
+            dateStyle: "medium",
+            timeZone: tz,
+          }).format(booking.assetsPurgeAfter)
+        : null,
       defaultDepositCents: profile.defaultDepositAmount,
       qrAvailable: Boolean(profile.bankAccount),
-      cardAvailable: Boolean(profile.stripeAccountId),
       paymentMethod: paymentMethodByBooking.get(booking.id) ?? null,
+      createdAtIso: booking.createdAt.toISOString(),
     })
   );
-
-  const chipsByDay: Record<string, CalendarChip[]> = {};
-  for (const { booking } of sorted) {
-    if (!booking.startTime) continue;
-    if (booking.status !== "confirmed" && booking.status !== "deposit_pending") {
-      continue;
-    }
-    const key = dayKey(booking.startTime);
-    const chips = (chipsByDay[key] ??= []);
-    chips.push({
-      id: booking.id,
-      timeLabel: formatInTimeZone(booking.startTime, tz, "HH:mm"),
-      label: booking.clientName,
-      variant: booking.status === "confirmed" ? "solid" : "outline",
-    });
-  }
-  for (const chips of Object.values(chipsByDay)) {
-    chips.sort((a, b) => a.timeLabel.localeCompare(b.timeLabel));
-  }
 
   const blockedDays = Object.entries(profile.bookingRules?.exceptions ?? {})
     .filter(([, exception]) => exception.closed)
     .map(([key]) => key);
 
-  return { bookingsView, chipsByDay, blockedDays };
+  return { bookingsView, blockedDays, listTruncated };
 }

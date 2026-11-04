@@ -4,8 +4,11 @@ export function LogoBlob({ className }: { className?: string }) {
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src="/logo.png"
+      src="/logo-128.png"
       alt="Tattly"
+      width={128}
+      height={128}
+      decoding="async"
       className={cn("object-contain mix-blend-multiply", className)}
     />
   );
@@ -15,30 +18,11 @@ export function Wordmark({ className }: { className?: string }) {
   return (
     <span
       className={cn(
-        "font-extrabold uppercase tracking-[0.08em]",
+        "font-semibold tracking-[-0.045em] text-foreground",
         className
       )}
     >
-      Tattly.eu
+      tattly<span className="text-muted-foreground">.eu</span>
     </span>
-  );
-}
-
-export function Eyebrow({
-  className,
-  children,
-}: {
-  className?: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <p
-      className={cn(
-        "text-xs font-bold uppercase tracking-[0.25em] text-muted-foreground",
-        className
-      )}
-    >
-      {children}
-    </p>
   );
 }

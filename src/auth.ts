@@ -55,7 +55,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         if (refreshToken) {
           await db
             .update(profiles)
-            .set({ googleRefreshToken: encryptSecret(refreshToken) })
+            .set({
+              googleRefreshToken: encryptSecret(refreshToken),
+              googleNeedsReconnect: false,
+            })
             .where(eq(profiles.id, existing.id));
         }
         return true;

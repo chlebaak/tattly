@@ -2,10 +2,11 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { useUnsavedChanges } from "@/lib/use-unsaved-changes";
 import { LayersIcon } from "lucide-react";
 import type { CustomFormField } from "@/db/schema";
 import { EmptyState } from "@/components/empty-state";
-import { Panel } from "@/components/panel";
+import { Panel } from "@/components/ui/panel";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -18,8 +19,10 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { saveService, setServiceActive } from "./actions";
+import { saveService, setServiceActive, duplicateService, deleteService } from "./actions";
 import { formatCents } from "@/lib/utils";
+import { ConfirmDialog } from "@/components/confirm-dialog";
+import { toast } from "sonner";
 
 type ServiceRow = {
   id: string;
@@ -56,10 +59,14 @@ function parseOptions(optionsText: string): string[] {
 
 function ServiceForm({
   initial,
+  defaultSlotInterval,
+  maxWindowMinutes,
   onSaved,
   onCancel,
 }: {
   initial?: ServiceRow;
+  defaultSlotInterval: number | null;
+  maxWindowMinutes: number;
   onSaved: () => void;
   onCancel: () => void;
 }) {
@@ -91,10 +98,24 @@ function ServiceForm({
   const [pending, setPending] = useState(false);
   const router = useRouter();
 
+  const effectiveInterval = slotInterval.trim()
+    ? Number(slotInterval)
+    : (defaultSlotInterval ?? (Number(duration) || 60));
+  const tooLongForWindow =
+    maxWindowMinutes > 0 && Number(duration) > maxWindowMinutes;
+
+  const [initialSnapshot] = useState(() =>
+    JSON.stringify({ title, duration, slotInterval, priceCzk, depositCzk, fields })
+  );
+  const dirty =
+    JSON.stringify({ title, duration, slotInterval, priceCzk, depositCzk, fields }) !==
+    initialSnapshot;
+  useUnsavedChanges(dirty && !pending);
+
   async function onSave() {
     setError(null);
     if (title.trim().length < 2) {
-      setError("Titul musí mít alespoň 2 znaky.");
+      setError("Název musí mít alespoň 2 znaky.");
       return;
     }
     const durationMinutes = Number(duration);
@@ -123,7 +144,7 @@ function ServiceForm({
         intervalMinutes < 5 ||
         intervalMinutes > 720)
     ) {
-      setError("Interval slotů musí být 5–720 minut.");
+      setError("Rozestup termínů musí být 5–720 minut.");
       return;
     }
     const price = priceCzk ? Number(priceCzk) : undefined;
@@ -182,7 +203,7 @@ function ServiceForm({
     <div className="space-y-4">
       <div className="grid gap-4 sm:grid-cols-3">
         <div className="space-y-2">
-          <Label htmlFor={`svc-title-${initial?.id ?? "new"}`}>Titul</Label>
+          <Label htmlFor={`svc-title-${initial?.id ?? "new"}`}>Název</Label>
           <Input
             id={`svc-title-${initial?.id ?? "new"}`}
             value={title}
@@ -193,7 +214,7 @@ function ServiceForm({
         </div>
         <div className="space-y-2">
           <Label htmlFor={`svc-duration-${initial?.id ?? "new"}`}>
-            Délka (min)
+            Délka sezení (min)
           </Label>
           <Input
             id={`svc-duration-${initial?.id ?? "new"}`}
@@ -203,10 +224,19 @@ function ServiceForm({
             value={duration}
             onChange={(e) => setDuration(e.target.value)}
           />
+          <p className="text-xs text-muted-foreground">
+            Podle délky se blokuje čas v kalendáři.
+          </p>
+          {tooLongForWindow && (
+            <p className="text-xs text-status-attention">
+              Služba je delší než nejdelší okno v dostupnosti (
+              {maxWindowMinutes} min) – klienti nenajdou volný termín.
+            </p>
+          )}
         </div>
         <div className="space-y-2">
           <Label htmlFor={`svc-interval-${initial?.id ?? "new"}`}>
-            Interval slotů (min)
+            Starty termínů (min)
           </Label>
           <Input
             id={`svc-interval-${initial?.id ?? "new"}`}
@@ -215,10 +245,15 @@ function ServiceForm({
             max={720}
             value={slotInterval}
             onChange={(e) => setSlotInterval(e.target.value)}
-            placeholder={`=${duration}`}
+            placeholder={
+              defaultSlotInterval
+                ? `Výchozí: ${defaultSlotInterval}`
+                : "Podle délky služby"
+            }
           />
           <p className="text-xs text-muted-foreground">
-            Prázdné = hustota podle délky služby
+            Prázdné = výchozí nastavení z Dostupnosti. Klient uvidí starty po{" "}
+            {effectiveInterval} min.
           </p>
         </div>
       </div>
@@ -375,7 +410,15 @@ function ServiceForm({
   );
 }
 
-export function ServicesManager({ services }: { services: ServiceRow[] }) {
+export function ServicesManager({
+  services,
+  defaultSlotInterval,
+  maxWindowMinutes,
+}: {
+  services: ServiceRow[];
+  defaultSlotInterval: number | null;
+  maxWindowMinutes: number;
+}) {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -388,11 +431,41 @@ export function ServicesManager({ services }: { services: ServiceRow[] }) {
     router.refresh();
   }
 
+  async function duplicate(service: ServiceRow) {
+    setBusyId(service.id);
+    const result = await duplicateService({ serviceId: service.id });
+    setBusyId(null);
+    if (!result.ok) {
+      toast.error("Duplikace se nezdařila.");
+      return;
+    }
+    toast.success("Služba duplikována jako neaktivní kopie.");
+    router.refresh();
+  }
+
+  async function remove(service: ServiceRow) {
+    setBusyId(service.id);
+    const result = await deleteService({ serviceId: service.id });
+    setBusyId(null);
+    if (!result.ok) {
+      toast.error(
+        result.error === "HAS_BOOKINGS"
+          ? "Službu nejde smazat, protože na ni odkazují rezervace. Místo toho ji deaktivujte."
+          : "Smazání se nezdařilo."
+      );
+      return;
+    }
+    toast.success("Služba smazána.");
+    router.refresh();
+  }
+
   return (
     <div className="space-y-4">
       {creating ? (
         <Panel className="p-5">
           <ServiceForm
+            defaultSlotInterval={defaultSlotInterval}
+            maxWindowMinutes={maxWindowMinutes}
             onSaved={() => setCreating(false)}
             onCancel={() => setCreating(false)}
           />
@@ -446,12 +519,40 @@ export function ServicesManager({ services }: { services: ServiceRow[] }) {
                 >
                   {s.isActive ? "Deaktivovat" : "Aktivovat"}
                 </Button>
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  disabled={busyId === s.id}
+                  onClick={() => duplicate(s)}
+                >
+                  Duplikovat
+                </Button>
+                <ConfirmDialog
+                  trigger={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      disabled={busyId === s.id}
+                    >
+                      Smazat
+                    </Button>
+                  }
+                  title={`Smazat službu „${s.title}“?`}
+                  description="Zmizí z vašeho rezervačního formuláře. Pokud na ni odkazují rezervace, smazat ji nepůjde – v tom případě ji deaktivujte."
+                  confirmLabel="Smazat"
+                  tone="destructive"
+                  onConfirm={() => remove(s)}
+                />
               </div>
             </div>
             {editingId === s.id && (
-              <div className="border-t border-foreground/8 p-5">
+              <div className="border-t border-border p-5">
                 <ServiceForm
                   initial={s}
+                  defaultSlotInterval={defaultSlotInterval}
+                  maxWindowMinutes={maxWindowMinutes}
                   onSaved={() => setEditingId(null)}
                   onCancel={() => setEditingId(null)}
                 />

@@ -3,67 +3,80 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import {
+  BarChart3Icon,
   CalendarDaysIcon,
-  ClipboardListIcon,
-  ClockIcon,
-  LayersIcon,
-  PlugIcon,
-  UserIcon,
+  InboxIcon,
+  LayoutDashboardIcon,
+  SettingsIcon,
 } from "lucide-react";
 import { cn } from "cn";
 
-const groups = [
+const ITEMS = [
   {
-    label: "Rezervace",
-    items: [
-      { href: "/dashboard", label: "Přehled", icon: ClipboardListIcon, exact: true },
-      { href: "/dashboard/calendar", label: "Kalendář", icon: CalendarDaysIcon },
-    ],
+    href: "/dashboard",
+    label: "Přehled",
+    icon: LayoutDashboardIcon,
+    exact: true,
   },
-  {
-    label: "Nastavení",
-    items: [
-      { href: "/dashboard/settings/services", label: "Služby", icon: LayersIcon },
-      { href: "/dashboard/settings/availability", label: "Dostupnost", icon: ClockIcon },
-      { href: "/dashboard/settings/integrations", label: "Integrace", icon: PlugIcon },
-      { href: "/dashboard/settings", label: "Profil", icon: UserIcon, exact: true },
-    ],
-  },
+  { href: "/dashboard/calendar", label: "Kalendář", icon: CalendarDaysIcon },
+  { href: "/dashboard/bookings", label: "Rezervace", icon: InboxIcon },
+  { href: "/dashboard/stats", label: "Statistiky", icon: BarChart3Icon },
 ];
 
-export function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+export function SidebarNav({ attentionCount = 0 }: { attentionCount?: number }) {
   const pathname = usePathname();
 
   return (
-    <nav className="space-y-6">
-      {groups.map((group) => (
-        <div key={group.label} className="space-y-0.5">
-          <p className="px-3 pb-1 text-xs font-medium text-muted-foreground/80">
-            {group.label}
-          </p>
-          {group.items.map((item) => {
-            const active = item.exact
-              ? pathname === item.href
-              : pathname.startsWith(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={onNavigate}
-                className={cn(
-                  "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-                  active
-                    ? "bg-foreground/[0.06] font-medium text-foreground before:absolute before:top-1/2 before:left-0 before:h-4 before:w-0.5 before:-translate-y-1/2 before:rounded-full before:bg-foreground"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground"
-                )}
-              >
-                <item.icon className="size-4" />
-                {item.label}
-              </Link>
-            );
-          })}
-        </div>
-      ))}
+    <nav className="flex flex-1 flex-col">
+      <div className="space-y-0.5">
+        {ITEMS.map((item) => {
+          const active = item.exact
+            ? pathname === item.href
+            : pathname.startsWith(item.href);
+          const showCount = item.href === "/dashboard" && attentionCount > 0;
+          return (
+            <Link
+              key={item.href}
+              href={item.href}
+              aria-current={active ? "page" : undefined}
+              className={cn(
+                "flex min-h-10 items-center gap-3 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                active
+                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+              )}
+            >
+              <item.icon className="size-4 shrink-0" />
+              <span className="truncate">{item.label}</span>
+              {showCount ? (
+                <span className="ml-auto inline-flex items-center gap-1 text-[11px] font-medium tabular-nums text-status-attention">
+                  <span
+                    aria-hidden
+                    className="size-1.5 rounded-full bg-status-attention"
+                  />
+                  {attentionCount > 99 ? "99+" : attentionCount}
+                </span>
+              ) : null}
+            </Link>
+          );
+        })}
+      </div>
+
+      <Link
+        href="/dashboard/settings"
+        aria-current={
+          pathname.startsWith("/dashboard/settings") ? "page" : undefined
+        }
+        className={cn(
+          "mt-auto flex min-h-10 items-center gap-3 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          pathname.startsWith("/dashboard/settings")
+            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+            : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+        )}
+      >
+        <SettingsIcon className="size-4 shrink-0" />
+        Nastavení
+      </Link>
     </nav>
   );
 }
