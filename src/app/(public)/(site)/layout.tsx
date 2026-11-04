@@ -10,20 +10,25 @@ export default function SiteLayout({
   return (
     <div className="flex min-h-svh flex-col">
       <header className="sticky top-0 z-40 border-b border-border bg-background">
-        <div className="mx-auto flex h-16 w-full max-w-[1120px] items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
+        <div className="mx-auto flex h-16 w-full max-w-[1120px] items-center justify-between gap-4 px-4 sm:px-6 lg:h-[72px] lg:px-8">
           <Link
             href="/"
-            className="flex items-center gap-2"
+            className="flex items-center gap-2.5 transition-opacity hover:opacity-80"
             aria-label="Tattly.eu"
           >
-            <LogoBlob className="size-7" />
-            <Wordmark className="text-base" />
+            <LogoBlob className="size-8 lg:size-9" />
+            <Wordmark className="text-base lg:text-lg" />
           </Link>
-          <nav className="flex items-center gap-1 sm:gap-2">
-            <Button asChild size="sm" variant="ghost">
-              <Link href="/artists">Najděte tatéra</Link>
+          <nav className="flex items-center gap-1.5">
+            <Button
+              asChild
+              size="default"
+              variant="ghost"
+              className="hidden text-muted-foreground hover:text-foreground sm:inline-flex"
+            >
+              <Link href="/artists">Najdi tatéra</Link>
             </Button>
-            <Button asChild size="sm">
+            <Button asChild size="default">
               <Link href="/login">Pro tatéry</Link>
             </Button>
           </nav>
