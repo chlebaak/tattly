@@ -168,7 +168,7 @@ export async function rescheduleBooking(input: {
           calendarId: profile.googleCalendarId,
           eventId: moved.googleEventId,
           artistName: profile.displayName,
-          serviceTitle: row.serviceTitle ?? "Rezervace",
+          serviceTitle: row.booking.serviceTitle ?? row.serviceTitle ?? "Rezervace",
           start,
           end,
           clientName: booking.clientName,
@@ -189,7 +189,7 @@ export async function rescheduleBooking(input: {
 
   const ics = await buildIcsAttachment({
     uid: booking.id,
-    title: `${row.serviceTitle ?? "Termín"} – ${profile.displayName}`,
+    title: `${row.booking.serviceTitle ?? row.serviceTitle ?? "Termín"} – ${profile.displayName}`,
     start,
     durationMinutes: parsed.data.durationMinutes,
     description: booking.description,
@@ -201,7 +201,7 @@ export async function rescheduleBooking(input: {
   const email = bookingRescheduledEmailForClient({
     clientName: booking.clientName,
     artistName: profile.displayName,
-    serviceTitle: row.serviceTitle ?? "Termín",
+    serviceTitle: row.booking.serviceTitle ?? row.serviceTitle ?? "Termín",
     oldWhen: booking.startTime,
     newWhen: start,
     timezone: profile.timezone,
@@ -319,7 +319,7 @@ export async function approveBookingAction(
       description: booking.description,
       startTime: start,
       endTime: end,
-      serviceTitle: row.serviceTitle,
+      serviceTitle: row.booking.serviceTitle ?? row.serviceTitle,
       serviceDurationMinutes: row.serviceDuration,
       priceMinor,
       depositAmount: 0,
@@ -419,7 +419,7 @@ export async function approveBookingAction(
     const email = depositLinkEmailForClient({
       clientName: booking.clientName,
       artistName: profile.displayName,
-      serviceTitle: row.serviceTitle ?? "Termín",
+      serviceTitle: row.booking.serviceTitle ?? row.serviceTitle ?? "Termín",
       amountMinor: depositAmount,
       currency: profile.currency,
       payUrl: `${appUrl()}/pay/${booking.id}`,
@@ -661,9 +661,8 @@ export async function cancelBooking(input: {
   }
 
   const [row] = await db
-    .select({ serviceTitle: services.title })
+    .select({ serviceTitle: bookings.serviceTitle })
     .from(bookings)
-    .leftJoin(services, eq(bookings.serviceId, services.id))
     .where(eq(bookings.id, booking.id))
     .limit(1);
   if (booking.startTime) {
@@ -780,7 +779,7 @@ async function issueInvoice(params: {
   await sendInvoiceEmail({
     profile,
     booking: booked.booking,
-    serviceTitle: booked.serviceTitle,
+    serviceTitle: booked.booking.serviceTitle ?? booked.serviceTitle,
     invoiceNumber,
   });
 }
@@ -863,7 +862,7 @@ export async function resendInvoice(input: {
   await sendInvoiceEmail({
     profile,
     booking,
-    serviceTitle: row.serviceTitle,
+    serviceTitle: row.booking.serviceTitle ?? row.serviceTitle,
     invoiceNumber: booking.invoiceNumber,
   });
   return { ok: true };
@@ -1090,7 +1089,7 @@ export async function sendClientMessage(input: {
   const email = artistMessageEmailForClient({
     clientName: booking.clientName,
     artistName: profile.displayName,
-    serviceTitle: row.serviceTitle ?? "Termín",
+    serviceTitle: row.booking.serviceTitle ?? row.serviceTitle ?? "Termín",
     when: booking.startTime,
     timezone: profile.timezone,
     message,

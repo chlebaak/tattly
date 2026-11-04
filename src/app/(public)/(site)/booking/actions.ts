@@ -26,6 +26,7 @@ export async function markDepositSent(
       artistName: profiles.displayName,
       timezone: profiles.timezone,
       currency: profiles.currency,
+      bookingTitle: bookings.serviceTitle,
       serviceTitle: services.title,
     })
     .from(bookings)
@@ -54,7 +55,7 @@ export async function markDepositSent(
   const email = depositMarkedPaidEmailForArtist({
     artistName: row.artistName,
     clientName: booking.clientName,
-    serviceTitle: row.serviceTitle ?? "Termín",
+    serviceTitle: row.bookingTitle ?? row.serviceTitle ?? "Termín",
     when: booking.startTime,
     timezone: row.timezone,
     amountMinor: booking.depositAmount ?? 0,
@@ -127,6 +128,7 @@ export async function submitClientRequest(input: unknown): Promise<{
       email: profiles.email,
       displayName: profiles.displayName,
       timezone: profiles.timezone,
+      bookingTitle: bookings.serviceTitle,
       serviceTitle: services.title,
     })
     .from(bookings)
@@ -141,7 +143,7 @@ export async function submitClientRequest(input: unknown): Promise<{
       clientEmail: booking.clientEmail,
       kind: parsed.data.kind,
       message,
-      serviceTitle: artist.serviceTitle ?? "Rezervace",
+      serviceTitle: artist.bookingTitle ?? artist.serviceTitle ?? "Rezervace",
       when: booking.startTime,
       timezone: artist.timezone,
       bookingUrl: `${appUrl()}/dashboard`,

@@ -101,7 +101,7 @@ export async function getDashboardData(
         .from(payments)
         .where(inArray(payments.bookingId, bookingIds))
     : [];
-  const paymentMethodByBooking = new Map<string, "stripe" | "qr" | "bank" | null>();
+  const paymentMethodByBooking = new Map<string, "qr" | "bank" | null>();
   const paymentByBooking = new Map<string, BookingPayment>();
   for (const p of paymentRows) {
     if (!paymentMethodByBooking.has(p.bookingId)) {
@@ -148,7 +148,7 @@ export async function getDashboardData(
       variableSymbol: booking.variableSymbol,
       clientIban: booking.clientIban,
       payment: paymentByBooking.get(booking.id) ?? null,
-      serviceTitle,
+      serviceTitle: booking.serviceTitle ?? serviceTitle,
       customEntries: Object.entries(booking.formData).map(([key, value]) => ({
         label: customFormFields?.find((f) => f.id === key)?.label ?? key,
         value: String(value),

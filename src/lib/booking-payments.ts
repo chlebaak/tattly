@@ -101,7 +101,7 @@ export async function confirmDepositPaid(params: {
     description: booking.description,
     startTime: moved.startTime,
     endTime: moved.endTime,
-    serviceTitle: row.serviceTitle,
+    serviceTitle: booking.serviceTitle ?? row.serviceTitle,
     serviceDurationMinutes: row.serviceDuration,
     priceMinor: moved.priceMinor,
     depositAmount: moved.depositAmount,

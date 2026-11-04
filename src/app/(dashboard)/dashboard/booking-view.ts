@@ -43,7 +43,7 @@ export type BookingView = {
   assetsPurgeLabel: string | null;
   defaultDepositCents: number;
   qrAvailable: boolean;
-  paymentMethod: "stripe" | "qr" | "bank" | null;
+  paymentMethod: "qr" | "bank" | null;
   createdAtIso: string;
 };
 

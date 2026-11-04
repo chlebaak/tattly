@@ -41,7 +41,6 @@ export async function saveService(input: unknown): Promise<SaveServiceResult> {
     priceMinor: data.priceCzk !== undefined ? data.priceCzk * 100 : null,
     depositMinor:
       data.depositCzk !== undefined ? data.depositCzk * 100 : null,
-    requiresDeposit: (data.depositCzk ?? 0) > 0,
     customFormFields: data.customFormFields,
   };
 
@@ -127,7 +126,6 @@ export async function duplicateService(input: {
       slotIntervalMinutes: existing.slotIntervalMinutes,
       priceMinor: existing.priceMinor,
       depositMinor: existing.depositMinor,
-      requiresDeposit: existing.requiresDeposit,
       customFormFields: existing.customFormFields,
       isActive: false,
     })

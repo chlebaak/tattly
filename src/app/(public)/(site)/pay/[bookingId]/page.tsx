@@ -127,7 +127,7 @@ export default async function PayPage({
               {amountLabel}
             </p>
             <p className="text-sm text-muted-foreground">
-              {row.serviceTitle ?? "Rezervace"} · {row.artistName}
+              {row.booking.serviceTitle ?? row.serviceTitle ?? "Rezervace"} · {row.artistName}
               {booking.startTime
                 ? ` · ${formatDateTime(booking.startTime, row.timezone)}`
                 : ""}

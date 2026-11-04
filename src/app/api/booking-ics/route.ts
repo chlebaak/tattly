@@ -43,7 +43,7 @@ export async function GET(request: Request) {
 
   const ics = await buildIcsAttachment({
     uid: booking.id,
-    title: `${row.serviceTitle ?? "Termín"} – ${row.artistName}`,
+    title: `${booking.serviceTitle ?? row.serviceTitle ?? "Termín"} – ${row.artistName}`,
     start: startTime,
     durationMinutes:
       row.serviceDurationMinutes ??

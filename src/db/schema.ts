@@ -30,7 +30,6 @@ export const paymentStatusEnum = pgEnum("payment_status", [
 ]);
 
 export const paymentMethodEnum = pgEnum("payment_method", [
-  "stripe",
   "qr",
   "bank",
 ]);
@@ -146,7 +145,6 @@ export const services = pgTable(
     slotIntervalMinutes: integer("slot_interval_minutes"),
     priceMinor: integer("price_minor"),
     depositMinor: integer("deposit_minor"),
-    requiresDeposit: boolean("requires_deposit").notNull().default(true),
     customFormFields: jsonb("custom_form_fields")
       .$type<CustomFormField[]>()
       .notNull()
@@ -169,6 +167,8 @@ export const bookings = pgTable(
     serviceId: uuid("service_id").references(() => services.id, {
       onDelete: "set null",
     }),
+    /** Název služby v okamžiku rezervace – historie přežije smazání služby. */
+    serviceTitle: varchar("service_title", { length: 120 }),
     status: bookingStatusEnum("status").notNull().default("pending_review"),
     statusCode: varchar("status_code", { length: 16 }).unique(),
     clientName: varchar("client_name", { length: 120 }).notNull(),
@@ -204,6 +204,8 @@ export const bookings = pgTable(
   },
   (t) => [
     index("bookings_profile_status_idx").on(t.profileId, t.status),
+    index("bookings_profile_created_idx").on(t.profileId, t.createdAt),
+    index("bookings_client_email_idx").on(t.clientEmail),
     index("bookings_start_idx").on(t.startTime),
     index("bookings_assets_purge_idx").on(t.assetsPurgeAfter),
   ]
@@ -226,24 +228,29 @@ export const bookingAssets = pgTable(
   (t) => [index("booking_assets_booking_idx").on(t.bookingId)]
 );
 
-export const payments = pgTable("payments", {
-  id: uuid("id").defaultRandom().primaryKey(),
-  bookingId: uuid("booking_id")
-    .notNull()
-    .references(() => bookings.id, { onDelete: "cascade" }),
-  /** Reference do budoucí platební brány (teď se nepoužívá). */
-  externalRef: varchar("external_ref", { length: 255 }),
-  method: paymentMethodEnum("method"),
-  amount: integer("amount").notNull(),
-  currency: varchar("currency", { length: 3 }).notNull().default("CZK"),
-  status: paymentStatusEnum("status").notNull().default("pending"),
-  paidAt: timestamp("paid_at", { withTimezone: true }),
-  refundedAt: timestamp("refunded_at", { withTimezone: true }),
-  refundNote: text("refund_note"),
-  createdAt: timestamp("created_at", { withTimezone: true })
-    .notNull()
-    .defaultNow(),
-});
+export const payments = pgTable(
+  "payments",
+  {
+    id: uuid("id").defaultRandom().primaryKey(),
+    bookingId: uuid("booking_id")
+      .notNull()
+      .references(() => bookings.id, { onDelete: "cascade" }),
+    method: paymentMethodEnum("method"),
+    amount: integer("amount").notNull(),
+    currency: varchar("currency", { length: 3 }).notNull().default("CZK"),
+    status: paymentStatusEnum("status").notNull().default("pending"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    refundNote: text("refund_note"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("payments_booking_idx").on(t.bookingId),
+    index("payments_paid_at_idx").on(t.paidAt),
+  ]
+);
 
 export const bookingEvents = pgTable(
   "booking_events",

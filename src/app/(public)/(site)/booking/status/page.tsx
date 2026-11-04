@@ -201,7 +201,7 @@ export default async function BookingStatusPage({
                 Rezervace {booking.statusCode}
               </p>
               <h1 className="mt-0.5 text-2xl font-semibold tracking-[-0.02em]">
-                {row.serviceTitle ?? "Termín"} – {row.artistName}
+                {row.booking.serviceTitle ?? row.serviceTitle ?? "Termín"} – {row.artistName}
               </h1>
               <p className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
                 <span className="inline-flex items-center gap-1.5">

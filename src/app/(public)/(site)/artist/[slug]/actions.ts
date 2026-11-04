@@ -158,6 +158,7 @@ export async function createBookingRequest(
     .values({
       profileId: profile.id,
       serviceId: service.id,
+      serviceTitle: service.title,
       status: "pending_review",
       statusCode: generateBookingCode(),
       clientName: data.clientName,

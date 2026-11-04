@@ -97,7 +97,7 @@ export async function sendDueReminder(bookingId: string): Promise<boolean> {
 
   const ics = await buildIcsAttachment({
     uid: booking.id,
-    title: `${row.serviceTitle ?? "Termín"} – ${row.artistName}`,
+    title: `${booking.serviceTitle ?? row.serviceTitle ?? "Termín"} – ${row.artistName}`,
     start: booking.startTime,
     durationMinutes:
       row.serviceDurationMinutes ??
@@ -121,7 +121,7 @@ export async function sendDueReminder(bookingId: string): Promise<boolean> {
   const email = reminderEmailForClient({
     clientName: booking.clientName,
     artistName: row.artistName,
-    serviceTitle: row.serviceTitle ?? "Termín",
+    serviceTitle: booking.serviceTitle ?? row.serviceTitle ?? "Termín",
     when: booking.startTime,
     timezone: row.timezone,
     address: row.addressLine
