@@ -19,6 +19,8 @@ import {
   SheetTrigger,
 } from "@/components/ui/sheet";
 import { LogoBlob, Wordmark } from "@/components/brand";
+import { MotionPill } from "@/components/ui/motion-pill";
+import { useSlidingPill } from "@/lib/use-sliding-pill";
 
 const NAV_LINKS = [
   { href: "#jak-to-funguje", label: "Jak to funguje" },
@@ -76,6 +78,7 @@ export function SiteHeader({
   const cta = loggedIn ? "Do aplikace" : "Začít zdarma";
   const ctaHref = loggedIn ? "/dashboard" : "/login";
   const shortCta = loggedIn ? "Aplikace" : "Začít";
+  const pill = useSlidingPill<HTMLElement>(activeSection);
 
   return (
     <header className="sticky top-0 z-40 border-b border-border bg-background">
@@ -90,21 +93,28 @@ export function SiteHeader({
         </Link>
 
         <nav
+          ref={pill.containerRef}
           aria-label="Hlavní navigace"
-          className="hidden items-center gap-1 xl:flex"
+          className="relative hidden items-center gap-1 rounded-[12px] bg-muted/35 p-1 xl:flex"
         >
+          <MotionPill
+            pill={pill.pill}
+            animate={pill.animate}
+            className="rounded-[8px] border border-border bg-card"
+          />
           {NAV_LINKS.map((link) => {
             const active = activeSection === link.href;
             return (
               <a
                 key={link.href}
+                ref={pill.register(link.href)}
                 href={link.href}
                 aria-current={active ? "location" : undefined}
                 className={cn(
-                  "shrink-0 whitespace-nowrap rounded-[8px] px-3 py-2 text-sm transition-colors",
+                  "relative z-10 flex h-9 shrink-0 items-center whitespace-nowrap rounded-[8px] px-3 text-sm transition-colors duration-150",
                   active
-                    ? "bg-accent font-medium text-espresso"
-                    : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
+                    ? "font-medium text-espresso"
+                    : "text-muted-foreground hover:bg-card/60 hover:text-foreground"
                 )}
               >
                 {link.label}

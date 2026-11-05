@@ -10,6 +10,8 @@ import {
   SettingsIcon,
 } from "lucide-react";
 import { cn } from "cn";
+import { MotionPill } from "@/components/ui/motion-pill";
+import { useSlidingPill } from "@/lib/use-sliding-pill";
 
 const ITEMS = [
   {
@@ -25,9 +27,20 @@ const ITEMS = [
 
 export function SidebarNav({ attentionCount = 0 }: { attentionCount?: number }) {
   const pathname = usePathname();
+  const settingsActive = pathname.startsWith("/dashboard/settings");
+  const activeKey =
+    ITEMS.find((item) =>
+      item.exact ? pathname === item.href : pathname.startsWith(item.href)
+    )?.href ?? (settingsActive ? "/dashboard/settings" : null);
+  const pill = useSlidingPill<HTMLElement>(activeKey);
 
   return (
-    <nav className="flex flex-1 flex-col">
+    <nav ref={pill.containerRef} className="relative flex flex-1 flex-col">
+      <MotionPill
+        pill={pill.pill}
+        animate={pill.animate}
+        className="rounded-[10px] bg-sidebar-accent"
+      />
       <div className="space-y-0.5">
         {ITEMS.map((item) => {
           const active = item.exact
@@ -37,12 +50,13 @@ export function SidebarNav({ attentionCount = 0 }: { attentionCount?: number }) 
           return (
             <Link
               key={item.href}
+              ref={pill.register(item.href)}
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-10 items-center gap-3 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "relative z-10 flex min-h-10 items-center gap-3 rounded-[10px] px-3 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 active
-                  ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+                  ? "font-medium text-sidebar-accent-foreground"
                   : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
               )}
             >
@@ -63,14 +77,13 @@ export function SidebarNav({ attentionCount = 0 }: { attentionCount?: number }) 
       </div>
 
       <Link
+        ref={pill.register("/dashboard/settings")}
         href="/dashboard/settings"
-        aria-current={
-          pathname.startsWith("/dashboard/settings") ? "page" : undefined
-        }
+        aria-current={settingsActive ? "page" : undefined}
         className={cn(
-          "mt-auto flex min-h-10 items-center gap-3 rounded-[10px] px-3 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
-          pathname.startsWith("/dashboard/settings")
-            ? "bg-sidebar-accent font-medium text-sidebar-accent-foreground"
+          "relative z-10 mt-auto flex min-h-10 items-center gap-3 rounded-[10px] px-3 text-sm transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+          settingsActive
+            ? "font-medium text-sidebar-accent-foreground"
             : "text-muted-foreground hover:bg-muted/70 hover:text-foreground"
         )}
       >

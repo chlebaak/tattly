@@ -9,6 +9,8 @@ import {
   LayoutDashboardIcon,
 } from "lucide-react";
 import { cn } from "cn";
+import { MotionPill } from "@/components/ui/motion-pill";
+import { useSlidingPill } from "@/lib/use-sliding-pill";
 
 const ITEMS = [
   {
@@ -24,13 +26,22 @@ const ITEMS = [
 
 export function MobileTabs({ attentionCount = 0 }: { attentionCount?: number }) {
   const pathname = usePathname();
+  const activeKey = ITEMS.find((item) =>
+    item.exact ? pathname === item.href : pathname.startsWith(item.href)
+  )?.href ?? null;
+  const pill = useSlidingPill<HTMLDivElement>(activeKey, { padding: 4 });
 
   return (
     <nav
       aria-label="Hlavní navigace"
       className="fixed inset-x-0 bottom-0 z-40 border-t border-border bg-background pb-[env(safe-area-inset-bottom)] lg:hidden"
     >
-      <div className="grid grid-cols-4">
+      <div ref={pill.containerRef} className="relative grid grid-cols-4">
+        <MotionPill
+          pill={pill.pill}
+          animate={pill.animate}
+          className="rounded-[12px] bg-accent"
+        />
         {ITEMS.map((item) => {
           const active = item.exact
             ? pathname === item.href
@@ -38,16 +49,17 @@ export function MobileTabs({ attentionCount = 0 }: { attentionCount?: number }) 
           return (
             <Link
               key={item.href}
+              ref={pill.register(item.href)}
               href={item.href}
               aria-current={active ? "page" : undefined}
               className={cn(
-                "flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
-                active ? "text-foreground" : "text-muted-foreground"
+                "relative z-10 flex min-h-14 flex-col items-center justify-center gap-1 text-[11px] font-medium transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset",
+                active ? "text-espresso" : "text-muted-foreground"
               )}
             >
               <span className="relative">
                 <item.icon
-                  className={cn("size-5", active && "text-coffee")}
+                  className={cn("size-5", active && "text-espresso")}
                 />
                 {item.href === "/dashboard" && attentionCount > 0 ? (
                   <span
