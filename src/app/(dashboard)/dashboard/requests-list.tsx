@@ -288,7 +288,7 @@ export function RequestsList({
       ) : (
         <>
           <div className="animate-enter overflow-hidden rounded-[18px] border border-border bg-card" style={{ animationDelay: "40ms" }}>
-            <div className="hidden items-center gap-3 border-b border-border px-4 py-2.5 text-[11px] font-medium text-muted-foreground sm:flex">
+            <div className="hidden items-center gap-3 border-b border-border px-4 py-2.5 text-[11px] font-medium text-muted-foreground lg:flex">
               <span aria-hidden className="w-4 shrink-0" />
               <span className="grid flex-1 grid-cols-[minmax(0,1.3fr)_170px_minmax(0,1fr)_120px] gap-4">
                 <span>Klient</span>
@@ -296,7 +296,7 @@ export function RequestsList({
                 <span>Služba</span>
                 <span>Stav</span>
               </span>
-              <span className="w-[76px] shrink-0 text-right">Akce</span>
+              <span className="w-[144px] shrink-0 text-right">Akce</span>
             </div>
             <ul>
               {shown.map((booking) => (

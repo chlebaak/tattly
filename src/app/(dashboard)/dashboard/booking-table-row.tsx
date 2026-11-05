@@ -58,7 +58,7 @@ export function BookingTableRow({
           onClick={openSheet}
           className="min-w-0 flex-1 text-left focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <span className="flex items-start justify-between gap-3 sm:hidden">
+          <span className="flex items-start justify-between gap-3 lg:hidden">
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">
                 {booking.clientName}
@@ -76,7 +76,7 @@ export function BookingTableRow({
             </span>
           </span>
 
-          <span className="hidden items-center gap-4 sm:grid sm:grid-cols-[minmax(0,1.3fr)_170px_minmax(0,1fr)_120px]">
+          <span className="hidden items-center gap-4 lg:grid lg:grid-cols-[minmax(0,1.3fr)_170px_minmax(0,1fr)_120px]">
             <span className="min-w-0">
               <span className="block truncate text-sm font-medium">
                 {booking.clientName}
@@ -107,7 +107,7 @@ export function BookingTableRow({
           </span>
         </button>
 
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex shrink-0 items-center justify-end gap-1 lg:w-[144px]">
           <BookingPrimaryAction
             booking={booking}
             size="default"
