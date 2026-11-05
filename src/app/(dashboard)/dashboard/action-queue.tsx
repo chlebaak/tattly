@@ -47,7 +47,7 @@ function QueueRow({ item }: { item: DashboardQueueItem }) {
         : "bg-muted-foreground/50";
 
   return (
-    <li className="border-b border-border last:border-b-0">
+    <li className="group border-b border-border transition-colors duration-150 last:border-b-0 hover:bg-accent/35 active:bg-accent/50">
       <div className="flex items-start gap-3 py-3.5">
         <button
           type="button"

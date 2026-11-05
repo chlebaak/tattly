@@ -7,7 +7,7 @@ export function SetupCard({ onboarding }: { onboarding: Onboarding }) {
   const percent = Math.round((onboarding.doneCount / onboarding.total) * 100);
 
   return (
-    <div className="flex flex-wrap items-center gap-4 rounded-[14px] border border-border bg-card px-4 py-3.5">
+    <div className="animate-enter flex flex-wrap items-center gap-4 rounded-[14px] border border-border bg-card px-4 py-3.5">
       <span className="text-xs font-medium text-muted-foreground tabular-nums">
         {onboarding.doneCount}/{onboarding.total}
       </span>
@@ -20,7 +20,7 @@ export function SetupCard({ onboarding }: { onboarding: Onboarding }) {
         </div>
         <div className="mt-1.5 h-1 overflow-hidden rounded-full bg-muted">
           <div
-            className="h-full rounded-full bg-primary"
+            className="h-full rounded-full bg-primary transition-[width] duration-500 ease-brand motion-reduce:transition-none"
             style={{ width: `${percent}%` }}
           />
         </div>

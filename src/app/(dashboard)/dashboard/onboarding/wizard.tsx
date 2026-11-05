@@ -91,7 +91,7 @@ export function OnboardingWizard({
             <span
               key={label}
               className={cn(
-                "h-1 flex-1 rounded-full transition-colors",
+                "h-1 flex-1 rounded-full transition-colors duration-150",
                 index < step ? "bg-primary" : "bg-muted"
               )}
             />
@@ -100,37 +100,39 @@ export function OnboardingWizard({
       </div>
 
       <Panel className="p-5 sm:p-6">
-        {step === 1 && (
-          <IdentityStep
-            displayName={displayName}
-            studioName={studioName}
-            bio={bio}
-            avatarUrl={avatarUrl}
-            onDone={() => setStep(2)}
-          />
-        )}
-        {step === 2 && (
-          <ServiceStep
-            hasServices={hasServices}
-            onDone={() => setStep(3)}
-          />
-        )}
-        {step === 3 && (
-          <ScheduleStep
-            timezone={timezone}
-            hasSchedule={hasSchedule}
-            onDone={() => setStep(4)}
-          />
-        )}
-        {step === 4 && (
-          <PaymentsStep
-            bankAccount={bankAccount}
-            onDone={() => setStep(5)}
-          />
-        )}
-        {step === 5 && (
-          <DoneStep publicUrl={publicUrl} onBack={() => setStep(4)} />
-        )}
+        <div key={step} className="animate-enter">
+          {step === 1 && (
+            <IdentityStep
+              displayName={displayName}
+              studioName={studioName}
+              bio={bio}
+              avatarUrl={avatarUrl}
+              onDone={() => setStep(2)}
+            />
+          )}
+          {step === 2 && (
+            <ServiceStep
+              hasServices={hasServices}
+              onDone={() => setStep(3)}
+            />
+          )}
+          {step === 3 && (
+            <ScheduleStep
+              timezone={timezone}
+              hasSchedule={hasSchedule}
+              onDone={() => setStep(4)}
+            />
+          )}
+          {step === 4 && (
+            <PaymentsStep
+              bankAccount={bankAccount}
+              onDone={() => setStep(5)}
+            />
+          )}
+          {step === 5 && (
+            <DoneStep publicUrl={publicUrl} onBack={() => setStep(4)} />
+          )}
+        </div>
       </Panel>
     </div>
   );

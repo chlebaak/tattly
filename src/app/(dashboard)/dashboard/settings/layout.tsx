@@ -13,7 +13,9 @@ export default function SettingsLayout({
         description="Profil, služby, dostupnost, platby a integrace."
       />
       <SettingsNav />
-      {children}
+      <div className="animate-enter" style={{ animationDelay: "40ms" }}>
+        {children}
+      </div>
     </div>
   );
 }

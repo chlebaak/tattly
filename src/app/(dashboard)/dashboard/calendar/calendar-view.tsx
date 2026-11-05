@@ -371,7 +371,7 @@ export function CalendarView({
         ) : (
           <div
             key={selectedDay}
-            className="divide-y divide-border overflow-hidden rounded-[14px] border border-border bg-card animate-in fade-in-0 slide-in-from-bottom-1 duration-300 ease-brand motion-reduce:animate-none"
+            className="divide-y divide-border overflow-hidden rounded-[14px] border border-border bg-card animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-brand motion-reduce:animate-none"
           >
             {agenda.map((booking) => (
               <CalendarBookingRow key={booking.id} booking={booking} />
@@ -409,7 +409,7 @@ export function CalendarView({
                   Podle délky služby, rozestupu, předstihu a Google kalendáře.
                 </span>
               </span>
-              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-180" />
+              <ChevronDownIcon className="size-4 shrink-0 text-muted-foreground transition-transform duration-200 group-open:rotate-180" />
             </summary>
             <div className="space-y-3 border-t border-border px-4 py-3">
               {services.length > 1 && (

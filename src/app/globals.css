@@ -76,6 +76,9 @@
   --milk: #efe6de;
   --destructive: #b42318;
   --radius: 0.625rem;
+  --motion-fast: 140ms;
+  --motion-base: 200ms;
+  --motion-slow: 280ms;
   --border: rgb(59 42 32 / 14%);
   --input: rgb(59 42 32 / 26%);
   --ring: #6f4e37;
@@ -135,24 +138,26 @@
 }
 
 @layer utilities {
-  .animate-rise {
-    animation: tattly-rise 0.5s var(--ease-brand) both;
+  .animate-enter {
+    animation: tattly-enter var(--motion-base) var(--ease-brand) both;
   }
-  .animate-pop {
-    animation: tattly-pop 400ms var(--ease-brand) both;
+  .animate-fade {
+    animation: tattly-fade var(--motion-fast) var(--ease-brand) both;
   }
-  @media (prefers-reduced-motion: reduce) {
-    .animate-rise,
-    .animate-pop {
-      animation: none;
-    }
+  .animate-grow-y {
+    animation: tattly-grow-y 400ms var(--ease-brand) both;
+    transform-origin: bottom;
+  }
+  .animate-grow-x {
+    animation: tattly-grow-x 400ms var(--ease-brand) both;
+    transform-origin: left;
   }
 }
 
-@keyframes tattly-rise {
+@keyframes tattly-enter {
   from {
     opacity: 0;
-    transform: translateY(12px);
+    transform: translateY(4px);
   }
   to {
     opacity: 1;
@@ -160,14 +165,30 @@
   }
 }
 
-@keyframes tattly-pop {
+@keyframes tattly-fade {
   from {
     opacity: 0;
-    transform: scale(0.92);
   }
   to {
     opacity: 1;
-    transform: scale(1);
+  }
+}
+
+@keyframes tattly-grow-y {
+  from {
+    transform: scaleY(0);
+  }
+  to {
+    transform: scaleY(1);
+  }
+}
+
+@keyframes tattly-grow-x {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
   }
 }
 
@@ -180,5 +201,16 @@
   }
   p {
     text-wrap: pretty;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  ::before,
+  ::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

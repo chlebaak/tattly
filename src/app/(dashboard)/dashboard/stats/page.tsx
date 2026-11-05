@@ -165,7 +165,7 @@ export default async function StatsPage({ searchParams }: Props) {
         </div>
       ) : (
         <>
-          <div className="grid grid-cols-2 gap-px overflow-hidden rounded-[18px] border border-border bg-border lg:grid-cols-4">
+          <div className="animate-enter grid grid-cols-2 gap-px overflow-hidden rounded-[18px] border border-border bg-border lg:grid-cols-4">
             <Metric
               label="Rezervace"
               value={String(data.current.sessions)}

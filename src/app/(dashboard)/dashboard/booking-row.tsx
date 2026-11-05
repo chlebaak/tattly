@@ -11,7 +11,7 @@ export function CalendarBookingRow({ booking }: { booking: BookingView }) {
   const { openSheet, sheet } = useBookingSheet(booking);
 
   return (
-    <div className="flex min-w-0 items-center gap-3 px-3 py-3">
+    <div className="group flex min-w-0 items-center gap-3 px-3 py-3 transition-colors duration-150 hover:bg-accent/35 active:bg-accent/50">
       <span className="w-11 shrink-0 text-sm font-semibold tabular-nums">
         {booking.startTimeLabel ?? "—"}
       </span>
@@ -29,7 +29,7 @@ export function CalendarBookingRow({ booking }: { booking: BookingView }) {
       </button>
       <StatusBadge status={booking.status} size="sm" />
       <BookingActionsMenu booking={booking} />
-      <ChevronRightIcon className="hidden size-4 shrink-0 text-muted-foreground sm:block" />
+      <ChevronRightIcon className="hidden size-4 shrink-0 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5 sm:block" />
       {sheet}
     </div>
   );

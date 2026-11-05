@@ -70,13 +70,14 @@ export function BarSeries({
           >
             <div
               className={cn(
-                "w-full rounded-t-[3px] transition-colors",
+                "w-full rounded-t-[3px] transition-colors animate-grow-y",
                 item.value > 0
                   ? "bg-coffee group-hover:bg-espresso"
                   : "bg-muted"
               )}
               style={{
                 height: `${Math.max(1.5, (item.value / max) * 100)}%`,
+                animationDelay: `${Math.min(index * 6, 120)}ms`,
               }}
             />
           </div>
@@ -125,7 +126,7 @@ export function LineSeries({
   const area = `${pad},${height - pad} ${line} ${width - pad},${height - pad}`;
 
   return (
-    <div className={cn("min-w-0", className)}>
+    <div className={cn("min-w-0 animate-fade", className)}>
       <svg
         viewBox={`0 0 ${width} ${height}`}
         className="h-40 w-full"
@@ -160,7 +161,7 @@ export function StatusMixBar({
   return (
     <div>
       <div
-        className="flex h-3 overflow-hidden rounded-full bg-muted"
+        className="flex h-3 animate-grow-x overflow-hidden rounded-full bg-muted"
         role="img"
         aria-label="Mix stavů rezervací"
       >
@@ -218,7 +219,7 @@ export function RankBars({
   const max = Math.max(1, ...items.map((item) => item.value));
   return (
     <ul className="space-y-3">
-      {items.map((item) => (
+      {items.map((item, index) => (
         <li key={item.label}>
           <div className="flex items-baseline justify-between gap-3 text-sm">
             <span className="truncate">{item.label}</span>
@@ -233,8 +234,11 @@ export function RankBars({
           </div>
           <div className="mt-1 h-1.5 overflow-hidden rounded-full bg-muted">
             <div
-              className="h-full rounded-full bg-coffee/80"
-              style={{ width: `${Math.max(2, (item.value / max) * 100)}%` }}
+              className="h-full animate-grow-x rounded-full bg-coffee/80"
+              style={{
+                width: `${Math.max(2, (item.value / max) * 100)}%`,
+                animationDelay: `${index * 60}ms`,
+              }}
             />
           </div>
         </li>

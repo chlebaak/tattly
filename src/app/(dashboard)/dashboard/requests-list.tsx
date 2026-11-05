@@ -169,7 +169,7 @@ export function RequestsList({
                 aria-selected={active}
                 onClick={() => setF(f.key)}
                 className={cn(
-                  "flex min-h-9 shrink-0 items-center gap-1.5 border-b-2 pb-1 text-sm transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                  "flex min-h-9 shrink-0 items-center gap-1.5 border-b-2 pb-1 text-sm transition-[color,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                   active
                     ? "border-primary font-medium text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground"
@@ -215,7 +215,7 @@ export function RequestsList({
       </div>
 
       {selectableIds.length > 0 && selectedCount > 0 && (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-border bg-card px-3 py-2">
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-[14px] border border-border bg-card px-3 py-2 animate-enter">
           <p className="text-sm">
             Vybráno <span className="font-semibold">{selectedCount}</span>
           </p>
@@ -287,7 +287,7 @@ export function RequestsList({
         />
       ) : (
         <>
-          <div className="overflow-hidden rounded-[18px] border border-border bg-card">
+          <div className="animate-enter overflow-hidden rounded-[18px] border border-border bg-card" style={{ animationDelay: "40ms" }}>
             <div className="hidden items-center gap-3 border-b border-border px-4 py-2.5 text-[11px] font-medium text-muted-foreground sm:flex">
               <span aria-hidden className="w-4 shrink-0" />
               <span className="grid flex-1 grid-cols-[minmax(0,1.3fr)_170px_minmax(0,1fr)_120px] gap-4">

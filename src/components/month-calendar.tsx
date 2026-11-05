@@ -301,8 +301,8 @@ export function MonthCalendar({
           if (key) moveFocus(event, key);
         }}
         className={cn(
-          "mt-1 grid grid-cols-7 gap-1 animate-in fade-in-0 duration-300 ease-brand motion-reduce:animate-none",
-          direction === 1 ? "slide-in-from-right-2" : "slide-in-from-left-2"
+          "mt-1 grid grid-cols-7 gap-1 animate-in fade-in-0 duration-200 ease-brand motion-reduce:animate-none",
+          direction === 1 ? "slide-in-from-right-1" : "slide-in-from-left-1"
         )}
       >
         {weeks.flat().map((date, index) => {

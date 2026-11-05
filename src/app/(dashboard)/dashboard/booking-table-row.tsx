@@ -31,10 +31,17 @@ export function BookingTableRow({
   return (
     <li
       className={cn(
-        "border-b border-border last:border-b-0",
-        selected && "bg-accent/40"
+        "group relative border-b border-border transition-colors duration-150 last:border-b-0 hover:bg-accent/35 active:bg-accent/50",
+        selected && "bg-accent/60"
       )}
     >
+      <span
+        aria-hidden
+        className={cn(
+          "absolute inset-y-2 left-0 w-0.5 rounded-full bg-espresso transition-opacity duration-150",
+          selected ? "opacity-100" : "opacity-0 group-hover:opacity-50"
+        )}
+      />
       <div className="flex items-center gap-3 px-3 py-3 sm:px-4">
         {selectable ? (
           <Checkbox
@@ -65,7 +72,7 @@ export function BookingTableRow({
             </span>
             <span className="flex shrink-0 items-center gap-2 pt-0.5">
               <StatusBadge status={booking.status} size="sm" />
-              <ChevronRightIcon className="size-4 text-muted-foreground" />
+              <ChevronRightIcon className="size-4 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
             </span>
           </span>
 

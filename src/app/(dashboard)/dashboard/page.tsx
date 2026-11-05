@@ -199,7 +199,7 @@ export default async function DashboardPage() {
       {!onboarding.complete ? <SetupCard onboarding={onboarding} /> : null}
 
       {profile.googleNeedsReconnect ? (
-        <div className="flex flex-wrap items-start gap-3 rounded-[14px] border border-status-attention/25 bg-status-attention-soft/60 px-4 py-3">
+        <div className="flex animate-enter flex-wrap items-start gap-3 rounded-[14px] border border-status-attention/25 bg-status-attention-soft/60 px-4 py-3">
           <CalendarXIcon className="mt-0.5 size-4 shrink-0 text-status-attention" />
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium">Kalendář se odpojil</p>
@@ -218,7 +218,7 @@ export default async function DashboardPage() {
       {hasActivity ? (
         <>
           <div className="grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-7">
+            <div className="animate-enter lg:col-span-7">
               <NextAppointment
                 booking={next}
                 dayLabel={
@@ -234,20 +234,20 @@ export default async function DashboardPage() {
                 }}
               />
             </div>
-            <div className="lg:col-span-5">
+            <div className="animate-enter lg:col-span-5" style={{ animationDelay: "60ms" }}>
               <ActionQueue items={actionQueue} />
             </div>
           </div>
 
           <div className="grid gap-6 lg:grid-cols-12">
-            <div className="lg:col-span-7">
+            <div className="animate-enter lg:col-span-7" style={{ animationDelay: "100ms" }}>
               <DayAgenda
                 today={today}
                 tomorrow={tomorrow}
                 nextId={next?.id ?? null}
               />
             </div>
-            <div className="lg:col-span-5">
+            <div className="animate-enter lg:col-span-5" style={{ animationDelay: "140ms" }}>
               <MoneySummary
                 money={money}
                 currency={profile.currency}
@@ -257,7 +257,7 @@ export default async function DashboardPage() {
           </div>
 
           {refunds.length > 0 || unmatchedPayments.length > 0 ? (
-            <section className="space-y-3 border-t border-border pt-6">
+            <section className="animate-enter space-y-3 border-t border-border pt-6">
               <div className="flex items-baseline justify-between gap-3">
                 <h2 className="text-sm font-semibold">Platby k vyřízení</h2>
                 <span className="text-xs text-muted-foreground tabular-nums">
@@ -281,7 +281,7 @@ export default async function DashboardPage() {
           ) : null}
         </>
       ) : (
-        <section className="rounded-[20px] border border-border bg-card p-6 sm:p-8">
+        <section className="animate-enter rounded-[20px] border border-border bg-card p-6 sm:p-8" style={{ animationDelay: "60ms" }}>
           <p className="text-xs font-medium uppercase tracking-[0.14em] text-muted-foreground">
             První kroky
           </p>

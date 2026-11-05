@@ -284,7 +284,7 @@ export function BookingDetailSheet({
                         height={80}
                         loading="lazy"
                         decoding="async"
-                        className="size-20 rounded-lg object-cover ring-1 ring-foreground/10 transition-transform hover:scale-105"
+                        className="size-20 rounded-lg object-cover ring-1 ring-foreground/10 transition-transform duration-200 ease-brand hover:scale-[1.02]"
                       />
                     </a>
                   ))}

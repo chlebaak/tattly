@@ -496,14 +496,14 @@ export function ScheduleEditor({
           Pokročilé nastavení
           <ChevronDownIcon
             className={cn(
-              "size-4 transition-transform duration-300 ease-brand",
+              "size-4 transition-transform duration-200 ease-brand",
               advancedOpen && "rotate-180"
             )}
           />
         </button>
         <div
           className={cn(
-            "grid transition-[grid-template-rows] duration-300 ease-brand motion-reduce:transition-none",
+            "grid transition-[grid-template-rows] duration-[250ms] ease-brand motion-reduce:transition-none",
             advancedOpen ? "grid-rows-[1fr]" : "grid-rows-[0fr]"
           )}
         >
@@ -671,7 +671,7 @@ export function ScheduleEditor({
 
         <Panel
           key={selectedDay}
-          className="space-y-4 p-5 animate-in fade-in-0 slide-in-from-bottom-1 duration-300 ease-brand motion-reduce:animate-none"
+          className="space-y-4 p-5 animate-in fade-in-0 slide-in-from-bottom-1 duration-200 ease-brand motion-reduce:animate-none"
         >
           <div className="flex flex-wrap items-center justify-between gap-2">
             <p className="text-base font-semibold tracking-tight">

@@ -463,8 +463,8 @@ export function BookingForm({
       <div
         key={step}
         className={cn(
-          "animate-in fade-in-0 duration-500 ease-brand motion-reduce:animate-none",
-          direction === 1 ? "slide-in-from-right-4" : "slide-in-from-left-4"
+          "animate-in fade-in-0 duration-200 ease-brand motion-reduce:animate-none",
+          direction === 1 ? "slide-in-from-right-2" : "slide-in-from-left-2"
         )}
       >
         {step === 1 && (

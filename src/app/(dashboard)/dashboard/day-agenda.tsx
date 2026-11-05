@@ -21,7 +21,7 @@ function AgendaRow({
       <button
         type="button"
         onClick={openSheet}
-        className="grid w-full grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 py-3 text-left transition-colors hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        className="group grid w-full grid-cols-[52px_minmax(0,1fr)_auto] items-center gap-3 py-3 text-left transition-colors duration-150 hover:bg-accent/35 active:bg-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       >
         <span className="text-sm font-semibold tabular-nums">
           {booking.startTimeLabel ?? "—"}
@@ -45,7 +45,7 @@ function AgendaRow({
         </span>
         <span className="flex items-center gap-2">
           <StatusBadge status={booking.status} size="sm" />
-          <ChevronRightIcon className="size-4 text-muted-foreground" />
+          <ChevronRightIcon className="size-4 text-muted-foreground transition-transform duration-150 group-hover:translate-x-0.5" />
         </span>
       </button>
       {sheet}
@@ -79,7 +79,7 @@ export function DayAgenda({
               onClick={() => setDay(value)}
               aria-pressed={day === value}
               className={cn(
-                "border-b-2 pb-0.5 text-xs font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                "border-b-2 pb-0.5 text-xs font-medium transition-[color,border-color] duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                 day === value
                   ? "border-primary text-foreground"
                   : "border-transparent text-muted-foreground hover:text-foreground"
@@ -91,27 +91,31 @@ export function DayAgenda({
         </div>
       </div>
 
-      {items.length === 0 ? (
-        <div className="mt-4 flex items-start gap-2.5 rounded-[14px] border border-border bg-card px-4 py-3.5">
-          <CalendarOffIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-          <p className="text-sm">
-            <span className="font-medium">
-              {day === "today" ? "Dnes žádné termíny." : "Zítra žádné termíny."}
-            </span>{" "}
-            <span className="text-muted-foreground">
-              {day === "today" && tomorrow.length > 0
-                ? "Zítra máte naplánovaný termín."
-                : "Nové potvrzené termíny se objeví tady."}
-            </span>
-          </p>
-        </div>
-      ) : (
-        <ul className="mt-2">
-          {items.map((booking) => (
-            <AgendaRow key={booking.id} booking={booking} nextId={nextId} />
-          ))}
-        </ul>
-      )}
+      <div key={day} className="animate-enter">
+        {items.length === 0 ? (
+          <div className="mt-4 flex items-start gap-2.5 rounded-[14px] border border-border bg-card px-4 py-3.5">
+            <CalendarOffIcon className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+            <p className="text-sm">
+              <span className="font-medium">
+                {day === "today"
+                  ? "Dnes žádné termíny."
+                  : "Zítra žádné termíny."}
+              </span>{" "}
+              <span className="text-muted-foreground">
+                {day === "today" && tomorrow.length > 0
+                  ? "Zítra máte naplánovaný termín."
+                  : "Nové potvrzené termíny se objeví tady."}
+              </span>
+            </p>
+          </div>
+        ) : (
+          <ul className="mt-2">
+            {items.map((booking) => (
+              <AgendaRow key={booking.id} booking={booking} nextId={nextId} />
+            ))}
+          </ul>
+        )}
+      </div>
     </section>
   );
 }
