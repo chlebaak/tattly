@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { getLegalOperator } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Podmínky užití",
@@ -9,6 +10,8 @@ export const metadata: Metadata = {
 };
 
 export default function TermsPage() {
+  const operator = getLegalOperator();
+
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-12">
       <p className="text-xs font-medium text-muted-foreground">Tattly.eu</p>
@@ -16,15 +19,23 @@ export default function TermsPage() {
         Podmínky užití
       </h1>
       <p className="mt-3 text-xs text-muted-foreground">
-        Účinné od [DATUM ÚČINNOSTI]. Nahrazuje předchozí znění.
+        Účinné od {operator.effectiveDate}. Nahrazuje předchozí znění.
       </p>
 
       <div className="mt-8 space-y-6 text-sm leading-relaxed [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_li]:ml-4 [&_li]:list-disc [&_ul]:space-y-1">
         <p>
           Provozovatelem platformy Tattly (dále „platforma“) je{" "}
-          <strong>[PROVOZOVATEL]</strong>, IČO [IČO], se sídlem [ADRESA],
-          kontakt <strong>[KONTAKTNÍ E-MAIL]</strong>. Používáním platformy
-          souhlasíte s těmito podmínkami.
+          <strong>{operator.name}</strong>, fyzická osoba
+          {operator.ico ? `, IČO ${operator.ico}` : null}
+          {operator.address
+            ? `, se sídlem ${operator.address}`
+            : ", korespondenční adresa na vyžádání"}, kontakt{" "}
+          <a
+            href={`mailto:${operator.email}`}
+            className="underline underline-offset-2"
+          >
+            {operator.email}
+          </a>. Používáním platformy souhlasíte s těmito podmínkami.
         </p>
 
         <section>
@@ -149,8 +160,14 @@ export default function TermsPage() {
         <section>
           <h2>7. Účet a jeho ukončení</h2>
           <p>
-            Účet profesionála lze kdykoli ukončit – napište nám na
-            [KONTAKTNÍ E-MAIL] a účet včetně profilu a portfolia smažeme.
+            Účet profesionála lze kdykoli ukončit – napište nám na{" "}
+            <a
+              href={`mailto:${operator.email}`}
+              className="underline underline-offset-2"
+            >
+              {operator.email}
+            </a>{" "}
+            a účet včetně profilu a portfolia smažeme.
             Údaje o proběhlých rezervacích a účetní doklady uchováváme po dobu
             uvedenou v zásadách ochrany osobních údajů. Klient může požádat o
             výmaz svých údajů stejnou cestou.
@@ -162,7 +179,14 @@ export default function TermsPage() {
           <p>
             S reklamací týkající se <strong>služby samotné</strong> se obraťte
             přímo na profesionála. S reklamací <strong>platformy</strong> se
-            obraťte na [KONTAKTNÍ E-MAIL]; odpovíme nejpozději do 30 dnů.
+            obraťte na{" "}
+            <a
+              href={`mailto:${operator.email}`}
+              className="underline underline-offset-2"
+            >
+              {operator.email}
+            </a>
+            ; odpovíme nejpozději do 30 dnů.
           </p>
           <p className="mt-3">
             Jste-li spotřebitel, máte právo na mimosoudní řešení sporu s

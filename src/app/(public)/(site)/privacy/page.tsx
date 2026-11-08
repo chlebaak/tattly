@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
+import { getLegalOperator } from "@/lib/legal";
 
 export const metadata: Metadata = {
   title: "Ochrana osobních údajů",
@@ -9,6 +10,8 @@ export const metadata: Metadata = {
 };
 
 export default function PrivacyPage() {
+  const operator = getLegalOperator();
+
   return (
     <main className="mx-auto w-full max-w-2xl px-4 py-12">
       <p className="text-xs font-medium text-muted-foreground">Tattly.eu</p>
@@ -16,15 +19,23 @@ export default function PrivacyPage() {
         Ochrana osobních údajů
       </h1>
       <p className="mt-3 text-xs text-muted-foreground">
-        Účinné od [DATUM ÚČINNOSTI]. Nahrazuje předchozí znění.
+        Účinné od {operator.effectiveDate}. Nahrazuje předchozí znění.
       </p>
 
       <div className="mt-8 space-y-6 text-sm leading-relaxed [&_h2]:text-xl [&_h2]:font-semibold [&_h2]:tracking-tight [&_h3]:mt-3 [&_h3]:font-medium [&_li]:ml-4 [&_li]:list-disc [&_ul]:space-y-1">
         <p>
-          Správcem osobních údajů je <strong>[PROVOZOVATEL]</strong>, IČO
-          [IČO], se sídlem [ADRESA]. Ve věcech ochrany osobních údajů nás
-          kontaktujte na <strong>[KONTAKTNÍ E-MAIL]</strong>. Jmenovaný
-          kontakt slouží i pro uplatnění vašich práv.
+          Správcem osobních údajů je <strong>{operator.name}</strong>, fyzická
+          osoba{operator.ico ? `, IČO ${operator.ico}` : null}
+          {operator.address
+            ? `, se sídlem ${operator.address}`
+            : ", korespondenční adresa na vyžádání"}.
+          Ve věcech ochrany osobních údajů nás kontaktujte na{" "}
+          <a
+            href={`mailto:${operator.email}`}
+            className="underline underline-offset-2"
+          >
+            {operator.email}
+          </a>. Jmenovaný kontakt slouží i pro uplatnění vašich práv.
         </p>
 
         <section>
@@ -85,10 +96,6 @@ export default function PrivacyPage() {
               <strong>Provoz, bezpečnost a obrana proti zneužití</strong>{" "}
               (ochrana proti spamu, technické logy) – oprávněný zájem.
             </li>
-            <li>
-              <strong>Newslettery a novinky</strong> – pouze pokud nám k tomu
-              dáte souhlas; odhlásit se lze v každém e-mailu.
-            </li>
           </ul>
           <p className="mt-3">
             Údaje jsou nezbytné pro uzavření a plnění smlouvy. Pokud je
@@ -106,8 +113,8 @@ export default function PrivacyPage() {
           <ul>
             <li>
               <strong>Google Ireland Limited</strong> – přihlášení a
-              synchronizace kalendáře (předáváme jméno, e-mail a údaje o
-              potvrzeném termínu),
+              synchronizace kalendáře (jméno, e-mail, telefon, popis a termín
+              rezervace),
             </li>
             <li>
               <strong>Resend</strong> – odesílání e-mailů (jméno, e-mail a obsah
@@ -123,6 +130,15 @@ export default function PrivacyPage() {
             <li>
               <strong>Mapy.cz (Seznam.cz)</strong> – našeptávač adres a měst.
             </li>
+            <li>
+              <strong>Inngest</strong> – asynchronní úlohy, připomínky a
+              automatické uvolňování termínů (identifikátory rezervací),
+            </li>
+            <li>
+              <strong>Fio banka</strong> – čtení bankovních transakcí pro
+              párování přijatých záloh (částka, variabilní symbol a zpráva
+              platby).
+            </li>
           </ul>
           <p className="mt-3">
             Někteří z těchto zpracovatelů působí v <strong>USA</strong>, proto
@@ -134,7 +150,56 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2>4. Doba uchování</h2>
+          <h2>4. Google API a kalendář</h2>
+          <p>
+            Pokud se přihlásíte Google účtem a propojíte kalendář, pracujeme s
+            těmito Google API scopes:
+          </p>
+          <ul>
+            <li>
+              <strong>openid, email, profile</strong> – přihlášení a základní
+              identita účtu,
+            </li>
+            <li>
+              <strong>calendar.readonly</strong> – přes free/busy endpoint
+              čteme pouze obsazené časové intervaly, abychom klientům
+              nenabízeli termín, kdy máte jiný program. Nečteme obsah cizích
+              událostí,
+            </li>
+            <li>
+              <strong>calendar.events</strong> – vytváříme, upravujeme a mažeme
+              pouze události, které Tattly vytvoří pro potvrzené rezervace.
+            </li>
+          </ul>
+          <p className="mt-3">
+            Do události v kalendáři se zapíše název služby, jméno klienta,
+            e-mail, případně telefon a popis rezervace. Ukládáme si ID vytvořené
+            události a šifrovaný refresh token; token používáme pouze k
+            obnovení přístupu.
+          </p>
+          <p className="mt-3">
+            Data z Google API používáme výhradně pro rezervace a kalendář.
+            Neprodáváme je, nepoužíváme pro reklamu ani k trénování modelů.
+            Naše použití odpovídá Google API Services User Data Policy včetně
+            Limited Use requirements.
+          </p>
+          <p className="mt-3">
+            Propojení můžete kdykoli zrušit v Nastavení → Integrace. Tím
+            odvoláme přístup, smažeme uložený token a přestaneme kalendář
+            používat. Přístup můžete odvolat také přímo ve svém Google účtu.
+            Pokud chcete smazat i ostatní údaje, napište na{" "}
+            <a
+              href={`mailto:${operator.email}`}
+              className="underline underline-offset-2"
+            >
+              {operator.email}
+            </a>
+            .
+          </p>
+        </section>
+
+        <section>
+          <h2>5. Doba uchování</h2>
           <ul>
             <li>
               <strong>Rezervace, poptávky a komunikace</strong> – po dobu
@@ -161,7 +226,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2>5. Vaše práva</h2>
+          <h2>6. Vaše práva</h2>
           <p>
             Máte právo na přístup ke svým údajům, jejich opravu a výmaz, na
             omezení zpracování, na přenositelnost údajů a právo vznést námitku
@@ -170,8 +235,14 @@ export default function PrivacyPage() {
             budoucího zpracování, nikoli zpracování provedeného do odvolání.
           </p>
           <p className="mt-3">
-            S žádostí se obraťte na <strong>[KONTAKTNÍ E-MAIL]</strong>;
-            vyřídíme ji nejpozději do jednoho měsíce. Dozvíte-li se, že s
+            S žádostí se obraťte na{" "}
+            <a
+              href={`mailto:${operator.email}`}
+              className="underline underline-offset-2"
+            >
+              {operator.email}
+            </a>
+            ; vyřídíme ji nejpozději do jednoho měsíce. Dozvíte-li se, že s
             údaji nakládáme v rozporu se zákonem, můžete se obrátit i na{" "}
             <strong>Úřad pro ochranu osobních údajů</strong>, Pplk. Sochora 27,
             170 00 Praha 7 (uoou.cz), případně se domáhat svých práv u soudu.
@@ -179,7 +250,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2>6. Soubory cookie</h2>
+          <h2>7. Soubory cookie</h2>
           <p>
             Používáme pouze technicky nezbytné soubory cookie (přihlášení a
             ochrana proti zneužití formulářů). Žádné analytické ani reklamní
@@ -190,7 +261,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2>7. Zabezpečení</h2>
+          <h2>8. Zabezpečení</h2>
           <p>
             Veškerá komunikace je šifrovaná (HTTPS). Přístupové tokeny k
             externím službám ukládáme v šifrované podobě, k databázi mají
@@ -201,7 +272,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2>8. Děti</h2>
+          <h2>9. Děti</h2>
           <p>
             Služba je určena osobám starším 15 let. Pokud je vám méně,
             rezervujte prosím jen se souhlasem zákonného zástupce. Profesionál
@@ -210,7 +281,7 @@ export default function PrivacyPage() {
         </section>
 
         <section>
-          <h2>9. Změny tohoto dokumentu</h2>
+          <h2>10. Změny tohoto dokumentu</h2>
           <p>
             Znění můžeme přiměřeně aktualizovat podle toho, jak se služba vyvíjí.
             O podstatných změnách informujeme e-mailem nebo v aplikaci a vždy
